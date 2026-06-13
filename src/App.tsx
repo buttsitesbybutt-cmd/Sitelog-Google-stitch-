@@ -6,8 +6,10 @@
 import React, { useState, useEffect } from "react";
 import { onAuthStateChanged, User } from "@/src/services/auth";
 import { getProjects, getCategories } from "@/src/services/db";
-import { Project, Category } from "@/src/lib/firebase";
+import { Project, Category, auth } from "@/src/lib/firebase";
 import AuthPage from "@/src/components/Auth";
+import VerifyEmail from "@/src/components/VerifyEmail";
+import ResetPassword from "@/src/components/ResetPassword";
 import Layout from "@/src/components/Layout";
 import Dashboard from "@/src/components/Dashboard";
 import ProjectForm from "@/src/components/ProjectForm";
@@ -22,7 +24,23 @@ type Tab = 'dashboard' | 'new-project' | 'project-detail' | 'reports' | 'categor
 
 export default function App() {
   const [user, setUser] = useState<User | null>(null);
+  const [emailVerified, setEmailVerified] = useState<boolean>(false);
   const [loading, setLoading] = useState(true);
+
+  // Parse early query parameters for special admin-authorized Firebase reset/verify links
+  const [authAction, setAuthAction] = useState<{ mode: string | null; oobCode: string | null }>(() => {
+    const params = new URLSearchParams(window.location.search);
+    return {
+      mode: params.get("mode"),
+      oobCode: params.get("oobCode")
+    };
+  });
+
+  const handleClearAuthAction = () => {
+    // Clear the active query string securely in browser history to resume default user session flow
+    window.history.replaceState({}, document.title, window.location.pathname);
+    setAuthAction({ mode: null, oobCode: null });
+  };
 
   // Read initial tab from URL hash to persist state across refreshes
   const getInitialTab = (): Tab => {
@@ -79,6 +97,7 @@ export default function App() {
   useEffect(() => {
     const unsubscribe = onAuthStateChanged((user) => {
       setUser(user);
+      setEmailVerified(user ? user.emailVerified : false);
       setLoading(false);
       if (user) {
         fetchData();
@@ -87,6 +106,15 @@ export default function App() {
     });
     return () => unsubscribe();
   }, []);
+
+  const checkVerification = async () => {
+    if (auth.currentUser) {
+      await auth.currentUser.reload();
+      setEmailVerified(auth.currentUser.emailVerified);
+      return auth.currentUser.emailVerified;
+    }
+    return false;
+  };
 
   const testConnection = async () => {
     try {
@@ -128,6 +156,17 @@ export default function App() {
     setSelectedProject(null);
   };
 
+  const isEmailUnverified = user && !emailVerified && user.providerData.some(p => p.providerId === 'password');
+
+  // Intercept and load dedicated, completely separate secure authentication endpoints
+  if (authAction.mode === "verifyEmail") {
+    return <VerifyEmail oobCode={authAction.oobCode} onClose={handleClearAuthAction} />;
+  }
+
+  if (authAction.mode === "resetPassword") {
+    return <ResetPassword oobCode={authAction.oobCode} onClose={handleClearAuthAction} />;
+  }
+
   if (loading) {
     return (
       <div className="min-h-screen bg-slate-900 flex items-center justify-center">
@@ -138,6 +177,10 @@ export default function App() {
 
   if (!user) {
     return <AuthPage />;
+  }
+
+  if (isEmailUnverified) {
+    return <AuthPage forceVerifyUser={user} onCheckVerification={checkVerification} />;
   }
 
   return (

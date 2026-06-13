@@ -7,7 +7,8 @@ import {
   signInWithEmailAndPassword,
   createUserWithEmailAndPassword,
   updateProfile,
-  sendPasswordResetEmail
+  sendPasswordResetEmail,
+  sendEmailVerification
 } from "firebase/auth";
 import { auth } from "@/src/lib/firebase";
 
@@ -40,6 +41,20 @@ export const signUpWithEmail = async (email: string, password: string, displayNa
     return result.user;
   } catch (error) {
     console.error("Email sign up error:", error);
+    throw error;
+  }
+};
+
+export const sendVerificationEmail = async (userToVerify?: User | null) => {
+  try {
+    const currentUser = userToVerify || auth.currentUser;
+    if (currentUser) {
+      await sendEmailVerification(currentUser);
+    } else {
+      throw new Error("No user is currently signed in to verify.");
+    }
+  } catch (error) {
+    console.error("Send email verification error:", error);
     throw error;
   }
 };

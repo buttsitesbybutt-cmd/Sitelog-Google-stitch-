@@ -1,15 +1,19 @@
-import React, { useState } from "react";
-import { signInWithGoogle, signInWithEmail, signUpWithEmail, resetPassword } from "@/src/services/auth";
-import { LogIn, ShieldCheck, Globe, Zap, Mail, Lock, User, ArrowLeft, AlertCircle, CheckCircle2, Eye, EyeOff } from "lucide-react";
+import React, { useState, useEffect } from "react";
+import { signInWithGoogle, signInWithEmail, signUpWithEmail, resetPassword, logout, sendVerificationEmail } from "@/src/services/auth";
+import { LogIn, ShieldCheck, Mail, Lock, User, ArrowLeft, AlertCircle, CheckCircle2, Eye, EyeOff, RotateCw, LogOut } from "lucide-react";
 import { motion, AnimatePresence } from "motion/react";
 import CompanyLogo from "@/src/components/CompanyLogo";
-import { doc, setDoc, getDoc } from "firebase/firestore";
-import { db } from "@/src/lib/firebase";
+import { auth } from "@/src/lib/firebase";
 
-type AuthMode = "signin" | "signup" | "forgot" | "verify";
+type AuthMode = "signin" | "signup" | "forgot" | "verify_native";
 
-export default function AuthPage() {
-  const [mode, setMode] = useState<AuthMode>("signin");
+interface AuthPageProps {
+  forceVerifyUser?: any;
+  onCheckVerification?: () => Promise<boolean>;
+}
+
+export default function AuthPage({ forceVerifyUser, onCheckVerification }: AuthPageProps = {}) {
+  const [mode, setMode] = useState<AuthMode>(forceVerifyUser ? "verify_native" : "signin");
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
   const [confirmPassword, setConfirmPassword] = useState("");
@@ -18,39 +22,13 @@ export default function AuthPage() {
   const [error, setError] = useState<string | null>(null);
   const [successMsg, setSuccessMsg] = useState<string | null>(null);
   const [loading, setLoading] = useState(false);
-
-  // Custom 6-digit Email Verification States
-  const [verificationCode, setVerificationCode] = useState("");
-  const [verifyType, setVerifyType] = useState<"signup" | "forgot_password">("signup");
-  const [newPassword, setNewPassword] = useState("");
-  const [newPasswordConfirm, setNewPasswordConfirm] = useState("");
-  const [showNewPasswordsForm, setShowNewPasswordsForm] = useState(false);
-  const [devCodeBypass, setDevCodeBypass] = useState<string | null>(null);
-  const [serviceAccountError, setServiceAccountError] = useState(false);
   const [fallbackResetSent, setFallbackResetSent] = useState(false);
 
-  const getVerificationEndpoint = () => {
-    const metaEnv = (import.meta as any).env || {};
-    const railwayUrl = metaEnv.VITE_RAILWAY_URL;
-    if (railwayUrl) {
-      const base = railwayUrl.endsWith("/") ? railwayUrl.slice(0, -1) : railwayUrl;
-      return `${base}/api/send-verification-code`;
+  useEffect(() => {
+    if (forceVerifyUser) {
+      setMode("verify_native");
     }
-    return "/api/send-verification-code";
-  };
-
-  const fetchWithTimeout = async (url: string, options: any, timeoutMs = 6000) => {
-    const controller = new AbortController();
-    const id = setTimeout(() => controller.abort(), timeoutMs);
-    try {
-      const res = await fetch(url, { ...options, signal: controller.signal });
-      clearTimeout(id);
-      return res;
-    } catch (err: any) {
-      clearTimeout(id);
-      throw err;
-    }
-  };
+  }, [forceVerifyUser]);
 
   const getFriendlyError = (err: any) => {
     const code = err?.code || "";
@@ -69,10 +47,10 @@ export default function AuthPage() {
       return "Please enter a valid email address.";
     }
     if (code === "auth/operation-not-allowed") {
-      return "Email/Password sign-in is disabled in your Firebase configuration. Please enable 'Email/Password' in your Firebase Console.";
+      return "Email/Password sign-on is currently disabled. Please contact the administrator.";
     }
     if (code === "auth/too-many-requests") {
-      return "This account has been temporarily locked due to many failed login attempts. Please reset your password or try again later.";
+      return "Account temporarily locked due to repeated failures. Please recover via password reset or try again later.";
     }
     return msg || "An unexpected error occurred. Please try again.";
   };
@@ -83,10 +61,6 @@ export default function AuthPage() {
     setSuccessMsg(null);
     setPassword("");
     setConfirmPassword("");
-    setVerificationCode("");
-    setShowNewPasswordsForm(false);
-    setDevCodeBypass(null);
-    setServiceAccountError(false);
     setFallbackResetSent(false);
   };
 
@@ -125,227 +99,72 @@ export default function AuthPage() {
       if (mode === "signin") {
         await signInWithEmail(email, password);
       } else if (mode === "signup") {
-        // Generate security code
-        const code = Math.floor(100000 + Math.random() * 900000).toString();
-        
-        // Save pending details to public Firestore verification table
-        await setDoc(doc(db, "verification_requests", email.toLowerCase().trim()), {
-          email: email.toLowerCase().trim(),
-          code,
-          displayName: displayName.trim(),
-          password,
-          type: "signup",
-          createdAt: new Date().toISOString()
-        });
-
-        // Call full-stack server API to dispatch email securely with sandbox fallback
-        let response: Response | null = null;
-        let fetchErrorOccurred = false;
-        try {
-          response = await fetchWithTimeout(getVerificationEndpoint(), {
-            method: "POST",
-            headers: {
-              "Content-Type": "application/json",
-            },
-            body: JSON.stringify({
-              email: email.toLowerCase().trim(),
-              code,
-              type: "signup",
-              displayName: displayName.trim()
-            })
-          });
-        } catch (fetchErr: any) {
-          console.error("API Fetch Error during signup code dispatch:", fetchErr);
-          fetchErrorOccurred = true;
-        }
-
-        let data: any = {};
-        if (response) {
-          data = await response.json().catch(() => ({}));
-        }
-
-        if (fetchErrorOccurred || !response || !response.ok) {
-          // Robust Sandbox fallback if API fails or is unreachable
-          console.warn("[Sandbox Bypass] Dev environment or API unreachable. Pre-filling verification code.");
-          setDevCodeBypass(code);
-          setVerificationCode(code);
-          setSuccessMsg(`We couldn't connect to the secure email service (it may not be fully deployed on your backend yet). For ease of sandbox testing, we have pre-filled your code: ${code}`);
-        } else if (data.emailNotConfigured) {
-          setDevCodeBypass(data.code || code);
-          setVerificationCode(data.code || code);
-          setSuccessMsg(`Email server is not configured. For ease of testing, your 6-digit verification code is pre-filled: ${data.code || code}`);
-        } else {
-          setDevCodeBypass(null);
-          setSuccessMsg(`We have emailed a 6-digit verification code to ${email}. Please check your inbox (and spam folder) to find your access code.`);
-        }
-
-        setVerifyType("signup");
-        setMode("verify");
+        const newUser = await signUpWithEmail(email, password, displayName);
+        await sendVerificationEmail(newUser);
+        setSuccessMsg(`Account registered successfully! A secure verification link has been sent to ${email}. Please check your inbox (and spam folder) and verify to complete registration.`);
+        setMode("verify_native");
       } else if (mode === "forgot") {
-        const code = Math.floor(100000 + Math.random() * 900000).toString();
-        
-        await setDoc(doc(db, "verification_requests", email.toLowerCase().trim()), {
-          email: email.toLowerCase().trim(),
-          code,
-          type: "forgot_password",
-          createdAt: new Date().toISOString()
-        });
+        await resetPassword(email.toLowerCase().trim());
+        setSuccessMsg(`A secure recovery link has been dispatched to ${email} using custom SMTP credentials. Please click the verification link in your inbox to proceed.`);
+        setFallbackResetSent(true);
+      }
+    } catch (err: any) {
+      setError(getFriendlyError(err));
+    } finally {
+      setLoading(false);
+    }
+  };
 
-        // Call full-stack server API to dispatch email securely with sandbox fallback
-        let response: Response | null = null;
-        let fetchErrorOccurred = false;
-        try {
-          response = await fetchWithTimeout(getVerificationEndpoint(), {
-            method: "POST",
-            headers: {
-              "Content-Type": "application/json",
-            },
-            body: JSON.stringify({
-              email: email.toLowerCase().trim(),
-              code,
-              type: "forgot_password"
-            })
-          });
-        } catch (fetchErr: any) {
-          console.error("API Fetch Error during forgot password code dispatch:", fetchErr);
-          fetchErrorOccurred = true;
-        }
-
-        let data: any = {};
-        if (response) {
-          data = await response.json().catch(() => ({}));
-        }
-
-        if (fetchErrorOccurred || !response || !response.ok) {
-          // Robust Sandbox fallback if API fails or is unreachable
-          console.warn("[Sandbox Bypass] Dev environment or API unreachable. Pre-filling reset code.");
-          setDevCodeBypass(code);
-          setVerificationCode(code);
-          setSuccessMsg(`We couldn't connect to the secure email service (it may not be fully deployed on your backend yet). For ease of sandbox testing, we have pre-filled your reset code: ${code}`);
-        } else if (data.emailNotConfigured) {
-          setDevCodeBypass(data.code || code);
-          setVerificationCode(data.code || code);
-          setSuccessMsg(`Email server is not configured. For ease of testing, your 6-digit password-reset security code is pre-filled: ${data.code || code}`);
+  const handleCheckEmailVerification = async () => {
+    setError(null);
+    setSuccessMsg(null);
+    setLoading(true);
+    try {
+      if (onCheckVerification) {
+        const verified = await onCheckVerification();
+        if (verified) {
+          setSuccessMsg("Email successfully verified! Welcome to Al-injaz.");
+          window.location.hash = "dashboard";
         } else {
-          setDevCodeBypass(null);
-          setSuccessMsg(`We have emailed a 6-digit password-reset security code to ${email}. Please check your inbox (and spam folder).`);
+          setError("Your email address is not verified yet. Please check your inbox for the link we sent you, click it, and try again.");
         }
-
-        setVerifyType("forgot_password");
-        setMode("verify");
-      }
-    } catch (err: any) {
-      setError(getFriendlyError(err));
-    } finally {
-      setLoading(false);
-    }
-  };
-
-  const handleVerifyCodeSubmit = async (e: React.FormEvent) => {
-    e.preventDefault();
-    setError(null);
-    setSuccessMsg(null);
-
-    if (!verificationCode.trim() || verificationCode.trim().length !== 6) {
-      setError("Please key in the exact 6-digit verification code.");
-      return;
-    }
-
-    setLoading(true);
-    try {
-      const docRef = doc(db, "verification_requests", email.toLowerCase().trim());
-      const docSnap = await getDoc(docRef);
-
-      if (!docSnap.exists()) {
-        setError("No active code request found for this email address. Please start again.");
-        setLoading(false);
-        return;
-      }
-
-      const rawData = docSnap.data();
-      if (rawData.code !== verificationCode.trim()) {
-        setError("Incorrect verification code. Please request again or check details.");
-        setLoading(false);
-        return;
-      }
-
-      if (verifyType === "signup") {
-        // Proceed with official registration in Firebase Auth
-        window.location.hash = "dashboard";
-        await signUpWithEmail(rawData.email, rawData.password, rawData.displayName);
-        setSuccessMsg("Account successfully verified and created! Redirecting you now...");
       } else {
-        // Transition to New Password form screen
-        setShowNewPasswordsForm(true);
-        setSuccessMsg("Verification code success! Enter your desired new password below.");
-      }
-    } catch (err: any) {
-      console.error("Verification error: ", err);
-      setError(getFriendlyError(err));
-    } finally {
-      setLoading(false);
-    }
-  };
-
-  const handleSendFallbackResetEmail = async () => {
-    setError(null);
-    setSuccessMsg(null);
-    setLoading(true);
-    try {
-      await resetPassword(email.toLowerCase().trim());
-      setSuccessMsg("We have successfully sent a secure Firebase password reset email to your inbox. Please check your spam folder and verify the link to change your password.");
-      setFallbackResetSent(true);
-    } catch (err: any) {
-      console.error("Fallback reset email error:", err);
-      setError(getFriendlyError(err));
-    } finally {
-      setLoading(false);
-    }
-  };
-
-  const handleResetPasswordWithNewCredentials = async (e: React.FormEvent) => {
-    e.preventDefault();
-    setError(null);
-    setSuccessMsg(null);
-
-    if (newPassword !== newPasswordConfirm) {
-      setError("Passwords do not match.");
-      return;
-    }
-    if (newPassword.length < 6) {
-      setError("Password must be at least 6 characters.");
-      return;
-    }
-
-    setLoading(true);
-    try {
-      // Update the user's password securely on the backend with Firebase Admin Auth
-      const response = await fetch("/api/update-user-password", {
-        method: "POST",
-        headers: {
-          "Content-Type": "application/json",
-        },
-        body: JSON.stringify({
-          email: email.toLowerCase().trim(),
-          code: verificationCode.trim(),
-          newPassword: newPassword,
-        }),
-      });
-
-      const resData = await response.json().catch(() => ({}));
-      if (!response.ok) {
-        if (resData.serviceAccountMissing) {
-          setServiceAccountError(true);
-          throw new Error(resData.message || resData.error);
+        await auth.currentUser?.reload();
+        if (auth.currentUser?.emailVerified) {
+          setSuccessMsg("Email successfully verified! Welcome to Al-injaz.");
+          window.location.hash = "dashboard";
+        } else {
+          setError("Your email address is not verified yet. Please click the verification link in your inbox first.");
         }
-        throw new Error(resData.error || "Failed to update your password on the authentication server.");
       }
+    } catch (err: any) {
+      setError(getFriendlyError(err));
+    } finally {
+      setLoading(false);
+    }
+  };
 
-      setSuccessMsg(resData.message || "Your password has been successfully updated! You can now sign in using your new credentials.");
-      setShowNewPasswordsForm(false);
-      setNewPassword("");
-      setNewPasswordConfirm("");
-      setMode("signin");
+  const handleResendEmailVerification = async () => {
+    setError(null);
+    setSuccessMsg(null);
+    setLoading(true);
+    try {
+      await sendVerificationEmail(forceVerifyUser || auth.currentUser);
+      setSuccessMsg(`A fresh secure verification email link has been dispatched to ${forceVerifyUser?.email || email || auth.currentUser?.email || "your address"}. Please check your inbox.`);
+    } catch (err: any) {
+      setError(getFriendlyError(err));
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  const handleNativeCancel = async () => {
+    setError(null);
+    setSuccessMsg(null);
+    setLoading(true);
+    try {
+      await logout();
+      handleModeChange("signin");
     } catch (err: any) {
       setError(getFriendlyError(err));
     } finally {
@@ -367,43 +186,40 @@ export default function AuthPage() {
   };
 
   return (
-    <div className="min-h-screen bg-slate-900 flex flex-col items-center justify-center p-6 text-white overflow-hidden relative">
-      {/* Background Orbs */}
-      <div className="absolute top-0 left-0 w-full h-full overflow-hidden z-0 opacity-25">
-        <div className="absolute top-[-10%] left-[-10%] w-[45%] h-[45%] bg-orange-600 rounded-full blur-[140px]"></div>
-        <div className="absolute bottom-[-10%] right-[-10%] w-[35%] h-[35%] bg-blue-600 rounded-full blur-[120px]"></div>
-      </div>
+    <div className="min-h-screen bg-slate-950 flex flex-col items-center justify-center p-4 relative overflow-hidden select-none">
+      {/* Visual background atmospheric lights */}
+      <div className="absolute top-1/4 left-1/2 -translate-x-1/2 -translate-y-1/2 w-96 h-96 bg-orange-600/10 blur-3xl rounded-full pointer-events-none"></div>
+      <div className="absolute bottom-1/4 left-1/3 w-80 h-80 bg-red-600/5 blur-3xl rounded-full pointer-events-none"></div>
 
       <motion.div 
         initial={{ opacity: 0, y: 20 }}
         animate={{ opacity: 1, y: 0 }}
-        className="max-w-md w-full space-y-8 relative z-10 text-center"
+        transition={{ duration: 0.5, ease: "easeOut" }}
+        className="w-full max-w-md text-center space-y-8 relative z-10"
       >
-        {/* Header Section */}
-        <div className="space-y-3">
-          <div className="mx-auto w-24 h-24 flex items-center justify-center bg-slate-800/80 rounded-3xl shadow-2xl shadow-orange-500/10 border border-slate-700/50">
-            <CompanyLogo size={80} className="transform hover:scale-105 transition-transform duration-300" />
-          </div>
+        {/* Branding header */}
+        <div className="flex flex-col items-center space-y-4">
+          <CompanyLogo size={110} className="hover:scale-105 transition-transform duration-300" />
           <div>
-            <h1 className="text-3xl font-black tracking-tight leading-tight">Al-injaz Electric</h1>
+            <h1 className="text-3xl font-black tracking-tight leading-tight text-slate-100">Al-injaz Electric</h1>
             <p className="text-orange-400 font-bold uppercase tracking-widest text-xs mt-1">Report Management System</p>
           </div>
         </div>
 
-        {/* Auth Box */}
-        <div className="bg-slate-800/50 backdrop-blur-xl border border-slate-700/50 p-8 rounded-[2rem] shadow-2xl space-y-6">
+        {/* Core Auth Panel */}
+        <div className="bg-slate-900/80 backdrop-blur-xl border border-slate-800/80 p-8 rounded-[2rem] shadow-2xl space-y-6">
           <div className="space-y-1">
             <h2 className="text-xl font-bold text-slate-200">
               {mode === "signin" && "Sign In"}
               {mode === "signup" && "Create an Account"}
               {mode === "forgot" && "Reset Password"}
-              {mode === "verify" && (showNewPasswordsForm ? "Set New Password" : "Email Verification")}
+              {mode === "verify_native" && "Verify Your Email"}
             </h2>
             <p className="text-slate-400 text-sm">
               {mode === "signin" && "Sign in using your account credentials."}
               {mode === "signup" && "Fill in your details below to get started."}
               {mode === "forgot" && "We will send you instructions to reset your password."}
-              {mode === "verify" && (showNewPasswordsForm ? "Set your new secure account password below." : "Please enter the 6-digit security code sent to you.")}
+              {mode === "verify_native" && "Please check your inbox to complete standard email authorization."}
             </p>
           </div>
 
@@ -434,147 +250,58 @@ export default function AuthPage() {
             )}
           </AnimatePresence>
 
-          {/* Core Interactive Forms */}
-          {mode === "verify" ? (
-            showNewPasswordsForm ? (
-              <form onSubmit={handleResetPasswordWithNewCredentials} className="space-y-4">
-                {serviceAccountError ? (
-                  <div className="space-y-4 text-left">
-                    <div className="p-4 bg-slate-900/60 border border-slate-700/50 rounded-2xl space-y-2.5">
-                      <p className="text-xs text-slate-300 font-medium leading-relaxed">
-                        To reset your password in this preview sandbox without complex backend Admin SDK configurations, you can trigger a standard, secure password reset email sent directly by Firebase:
-                      </p>
-                    </div>
-
-                    <button
-                      type="button"
-                      onClick={handleSendFallbackResetEmail}
-                      disabled={loading || fallbackResetSent}
-                      className="w-full bg-gradient-to-r from-slate-700 to-slate-800 text-slate-200 border border-slate-600/50 hover:bg-slate-700/80 font-bold py-3 px-4 rounded-xl flex items-center justify-center space-x-2 transition-all active:scale-98"
-                    >
-                      {loading ? (
-                        <div className="w-5 h-5 border-2 border-slate-300 border-t-transparent rounded-full animate-spin"></div>
-                      ) : (
-                        <>
-                          <Mail size={16} className="text-orange-400" />
-                          <span>{fallbackResetSent ? "Reset Email Dispatched!" : "Send Reset Email via Google"}</span>
-                        </>
-                      )}
-                    </button>
-
-                    <button
-                      type="button"
-                      onClick={() => handleModeChange("signin")}
-                      className="w-full text-center text-xs text-slate-400 hover:text-orange-400 transition-colors pt-2 block font-semibold"
-                    >
-                      Return to Sign In Page
-                    </button>
-                  </div>
-                ) : (
-                  <>
-                    <div className="space-y-1 text-left">
-                      <label className="text-[11px] font-bold text-slate-400 uppercase tracking-wider block ml-1">New Password</label>
-                      <div className="relative">
-                        <Lock size={16} className="absolute left-3.5 top-1/2 -translate-y-1/2 text-slate-500" />
-                        <input
-                          type={showPassword ? "text" : "password"}
-                          required
-                          placeholder="At least 6 characters"
-                          value={newPassword}
-                          onChange={(e) => setNewPassword(e.target.value)}
-                          disabled={loading}
-                          className="w-full bg-slate-900/60 border border-slate-700/50 rounded-xl py-3 pl-10 pr-10 text-sm text-slate-200 placeholder:text-slate-500 focus:outline-none focus:border-orange-500/80 focus:ring-1 focus:ring-orange-500/40 transition-all"
-                        />
-                        <button
-                          type="button"
-                          onClick={() => setShowPassword(!showPassword)}
-                          className="absolute right-3 top-1/2 -translate-y-1/2 text-slate-500 hover:text-slate-300 transition-colors"
-                        >
-                          {showPassword ? <EyeOff size={16} /> : <Eye size={16} />}
-                        </button>
-                      </div>
-                    </div>
-
-                    <div className="space-y-1 text-left">
-                      <label className="text-[11px] font-bold text-slate-400 uppercase tracking-wider block ml-1">Confirm New Password</label>
-                      <div className="relative">
-                        <Lock size={16} className="absolute left-3.5 top-1/2 -translate-y-1/2 text-slate-500" />
-                        <input
-                          type={showPassword ? "text" : "password"}
-                          required
-                          placeholder="Repeat new password"
-                          value={newPasswordConfirm}
-                          onChange={(e) => setNewPasswordConfirm(e.target.value)}
-                          disabled={loading}
-                          className="w-full bg-slate-900/60 border border-slate-700/50 rounded-xl py-3 pl-10 pr-4 text-sm text-slate-200 placeholder:text-slate-500 focus:outline-none focus:border-orange-500/80 focus:ring-1 focus:ring-orange-500/40 transition-all font-bold"
-                        />
-                      </div>
-                    </div>
-
-                    <button
-                      type="submit"
-                      disabled={loading}
-                      className="w-full bg-gradient-to-r from-orange-500 via-orange-600 to-red-600 text-white font-black py-3.5 rounded-xl hover:opacity-95 transition-opacity active:scale-98 shadow-lg shadow-orange-500/10 flex items-center justify-center space-x-2"
-                    >
-                      {loading ? (
-                        <div className="w-5 h-5 border-2 border-white border-t-transparent rounded-full animate-spin"></div>
-                      ) : (
-                        <>
-                          <ShieldCheck size={18} />
-                          <span>Update Password & Sign In</span>
-                        </>
-                      )}
-                    </button>
-                  </>
-                )}
-              </form>
-            ) : (
-              <form onSubmit={handleVerifyCodeSubmit} className="space-y-4">
-                {devCodeBypass && (
-                  <div className="p-3 bg-amber-500/10 border border-amber-500/20 rounded-xl text-left text-xs text-amber-300 space-y-1">
-                    <p className="font-bold flex items-center space-x-1.5 text-amber-400">
-                      <Zap size={14} className="animate-pulse" />
-                      <span>Sandbox Code Delivery</span>
-                    </p>
-                    <p className="text-[11px] leading-relaxed text-slate-300">
-                      No SMTP mail server configured. For ease of testing, your code is: <strong className="text-amber-200 select-all font-mono text-xs px-1.5 py-0.5 bg-slate-900 rounded border border-slate-700">{devCodeBypass}</strong>
-                    </p>
-                  </div>
-                )}
-
-                <div className="space-y-1 text-left">
-                  <label className="text-[11px] font-bold text-slate-400 uppercase tracking-wider block ml-1">6-Digit Verification Code</label>
-                  <div className="relative">
-                    <Lock size={16} className="absolute left-3.5 top-1/2 -translate-y-1/2 text-slate-500" />
-                    <input
-                      type="text"
-                      maxLength={6}
-                      required
-                      placeholder=""
-                      value={verificationCode}
-                      onChange={(e) => setVerificationCode(e.target.value)}
-                      disabled={loading}
-                      className="w-full bg-slate-900/60 border border-slate-700/50 rounded-xl py-3 text-center font-mono text-xl font-bold tracking-[0.5em] text-slate-200 placeholder:text-slate-600 focus:outline-none focus:border-orange-500/80 focus:ring-1 focus:ring-orange-500/40 transition-all"
-                    />
-                  </div>
+          {/* Interactive Screen Forms */}
+          {mode === "verify_native" ? (
+            <div className="space-y-6">
+              <div className="p-4 bg-slate-950/60 border border-slate-800/80 rounded-2xl flex flex-col items-center justify-center text-center space-y-3">
+                <Mail size={40} className="text-orange-500 animate-pulse mt-1" />
+                <div className="space-y-1">
+                  <p className="text-xs text-slate-400 max-w-[320px] mx-auto leading-relaxed">
+                    A secure authentication link is waiting in your inbox. Please click or tap the link to verify your profile credentials.
+                  </p>
                 </div>
+              </div>
 
+              <div className="space-y-3 pt-2">
                 <button
-                  type="submit"
+                  type="button"
+                  onClick={handleCheckEmailVerification}
                   disabled={loading}
-                  className="w-full bg-gradient-to-r from-orange-500 via-orange-600 to-red-600 text-white font-black py-3.5 rounded-xl hover:opacity-95 transition-opacity active:scale-98 shadow-lg shadow-orange-500/10 flex items-center justify-center space-x-2"
+                  className="w-full bg-gradient-to-r from-orange-500 via-orange-600 to-red-600 text-white font-black py-3.5 rounded-xl hover:opacity-95 transition-all shadow-lg active:scale-98 flex items-center justify-center space-x-2"
                 >
                   {loading ? (
                     <div className="w-5 h-5 border-2 border-white border-t-transparent rounded-full animate-spin"></div>
                   ) : (
                     <>
                       <ShieldCheck size={18} />
-                      <span>Verify Code</span>
+                      <span>I Have Verified My Email</span>
                     </>
                   )}
                 </button>
-              </form>
-            )
+
+                <div className="flex gap-2">
+                  <button
+                    type="button"
+                    onClick={handleResendEmailVerification}
+                    disabled={loading}
+                    className="flex-1 bg-slate-800 hover:bg-slate-700 text-slate-200 hover:border-slate-600 font-bold py-2.5 px-3 rounded-xl border border-slate-700/80 flex items-center justify-center space-x-1.5 text-xs transition-all active:scale-[0.98]"
+                  >
+                    <RotateCw size={13} className={loading ? "animate-spin" : ""} />
+                    <span>Resend Link</span>
+                  </button>
+
+                  <button
+                    type="button"
+                    onClick={handleNativeCancel}
+                    disabled={loading}
+                    className="flex-1 bg-slate-800/60 text-slate-400 hover:text-red-400 hover:border-red-500/30 font-bold py-2.5 px-3 rounded-xl border border-slate-700/60 flex items-center justify-center space-x-1.5 text-xs transition-all active:scale-[0.98]"
+                  >
+                    <LogOut size={13} />
+                    <span>Sign Out</span>
+                  </button>
+                </div>
+              </div>
+            </div>
           ) : (
             <form onSubmit={handleSubmit} className="space-y-4">
               {mode === "signup" && (
@@ -589,7 +316,7 @@ export default function AuthPage() {
                       value={displayName}
                       onChange={(e) => setDisplayName(e.target.value)}
                       disabled={loading}
-                      className="w-full bg-slate-900/60 border border-slate-700/50 rounded-xl py-3 pl-10 pr-4 text-sm text-slate-200 placeholder:text-slate-500 focus:outline-none focus:border-orange-500/80 focus:ring-1 focus:ring-orange-500/40 transition-all"
+                      className="w-full bg-slate-950/60 border border-slate-800/80 rounded-xl py-3 pl-10 pr-4 text-sm text-slate-200 placeholder:text-slate-600 focus:outline-none focus:border-orange-500 focus:ring-1 focus:ring-orange-500/40 transition-all font-medium"
                     />
                   </div>
                 </div>
@@ -606,7 +333,7 @@ export default function AuthPage() {
                     value={email}
                     onChange={(e) => setEmail(e.target.value)}
                     disabled={loading}
-                    className="w-full bg-slate-900/60 border border-slate-700/50 rounded-xl py-3 pl-10 pr-4 text-sm text-slate-200 placeholder:text-slate-500 focus:outline-none focus:border-orange-500/80 focus:ring-1 focus:ring-orange-500/40 transition-all"
+                    className="w-full bg-slate-950/60 border border-slate-800/80 rounded-xl py-3 pl-10 pr-4 text-sm text-slate-200 placeholder:text-slate-600 focus:outline-none focus:border-orange-500 focus:ring-1 focus:ring-orange-500/40 transition-all font-medium"
                   />
                 </div>
               </div>
@@ -634,14 +361,14 @@ export default function AuthPage() {
                       value={password}
                       onChange={(e) => setPassword(e.target.value)}
                       disabled={loading}
-                      className="w-full bg-slate-900/60 border border-slate-700/50 rounded-xl py-3 pl-10 pr-10 text-sm text-slate-200 placeholder:text-slate-500 focus:outline-none focus:border-orange-500/80 focus:ring-1 focus:ring-orange-500/40 transition-all"
+                      className="w-full bg-slate-950/60 border border-slate-800/80 rounded-xl py-3 pl-10 pr-10 text-sm text-slate-200 placeholder:text-slate-600 focus:outline-none focus:border-orange-500 focus:ring-1 focus:ring-orange-500/40 transition-all font-medium"
                     />
                     <button
                       type="button"
                       onClick={() => setShowPassword(!showPassword)}
                       className="absolute right-3 top-1/2 -translate-y-1/2 text-slate-500 hover:text-slate-300 transition-colors"
                     >
-                      {showPassword ? <EyeOff size={16} /> : <Eye size={16} />}
+                      {showPassword ? <EyeOff size={15} /> : <Eye size={15} />}
                     </button>
                   </div>
                 </div>
@@ -659,7 +386,7 @@ export default function AuthPage() {
                       value={confirmPassword}
                       onChange={(e) => setConfirmPassword(e.target.value)}
                       disabled={loading}
-                      className="w-full bg-slate-900/60 border border-slate-700/50 rounded-xl py-3 pl-10 pr-4 text-sm text-slate-200 placeholder:text-slate-500 focus:outline-none focus:border-orange-500/80 focus:ring-1 focus:ring-orange-500/40 transition-all"
+                      className="w-full bg-slate-950/60 border border-slate-800/80 rounded-xl py-3 pl-10 pr-4 text-sm text-slate-200 placeholder:text-slate-600 focus:outline-none focus:border-orange-500 focus:ring-1 focus:ring-orange-500/40 transition-all font-medium"
                     />
                   </div>
                 </div>
@@ -668,13 +395,13 @@ export default function AuthPage() {
               <button
                 type="submit"
                 disabled={loading}
-                className="w-full bg-gradient-to-r from-orange-500 via-orange-600 to-red-600 text-white font-black py-3.5 rounded-xl hover:opacity-95 transition-opacity active:scale-98 shadow-lg shadow-orange-500/10 flex items-center justify-center space-x-2"
+                className="w-full bg-gradient-to-r from-orange-500 via-orange-600 to-red-600 text-white font-black py-3.5 rounded-xl hover:opacity-95 transition-opacity active:scale-98 shadow-lg shadow-orange-500/15 flex items-center justify-center space-x-2 text-sm mt-3"
               >
                 {loading ? (
                   <div className="w-5 h-5 border-2 border-white border-t-transparent rounded-full animate-spin"></div>
                 ) : (
                   <>
-                    <LogIn size={18} />
+                    <LogIn size={16} />
                     <span>
                       {mode === "signin" && "Sign In with Email"}
                       {mode === "signup" && "Create Account"}
@@ -690,15 +417,15 @@ export default function AuthPage() {
           {mode === "signin" && (
             <div className="space-y-4">
               <div className="relative flex py-2 items-center">
-                <div className="flex-grow border-t border-slate-700/50"></div>
+                <div className="flex-grow border-t border-slate-800/60"></div>
                 <span className="flex-shrink mx-4 text-xs font-bold text-slate-500 uppercase tracking-wider">Or</span>
-                <div className="flex-grow border-t border-slate-700/50"></div>
+                <div className="flex-grow border-t border-slate-800/60"></div>
               </div>
 
               <button 
                 onClick={handleGoogleSignIn}
                 disabled={loading}
-                className="w-full flex items-center justify-center space-x-3 bg-white text-slate-900 font-bold py-3.5 rounded-xl hover:bg-slate-100 transition-all shadow-lg active:scale-98"
+                className="w-full flex items-center justify-center space-x-3 bg-white text-slate-900 font-bold py-3.5 rounded-xl hover:bg-slate-100 transition-all shadow-lg active:scale-98 text-sm"
               >
                 <img src="https://www.gstatic.com/firebasejs/ui/2.0.0/images/auth/google.svg" alt="Google" className="w-5 h-5" />
                 <span>Continue with Google</span>
@@ -741,20 +468,10 @@ export default function AuthPage() {
                 <span>Back to Sign In</span>
               </button>
             )}
-
-            {mode === "verify" && (
-              <button
-                onClick={() => handleModeChange("signin")}
-                className="text-slate-300 font-bold hover:text-white transition-colors flex items-center justify-center mx-auto space-x-2"
-              >
-                <ArrowLeft size={14} />
-                <span>Cancel & Back to Sign In</span>
-              </button>
-            )}
           </div>
         </div>
 
-        <p className="text-slate-500 text-xs font-medium">
+        <p className="text-slate-500 text-xs font-medium leading-relaxed">
           Trusted by construction and electrical teams worldwide.<br/>
           &copy; {new Date().getFullYear()} Al-injaz Electric.
         </p>
