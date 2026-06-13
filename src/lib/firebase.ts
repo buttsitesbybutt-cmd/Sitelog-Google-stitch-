@@ -3,14 +3,36 @@ import { getAuth } from "firebase/auth";
 import { initializeFirestore, persistentLocalCache, persistentMultipleTabManager } from "firebase/firestore";
 import firebaseConfig from "@/firebase-applet-config.json";
 
-const app = initializeApp(firebaseConfig);
+// Construct the secure config by prioritizing environment variables (which are ignored in source control)
+// and falling back to local config files if env variables are empty or contain placeholders.
+const metaEnv = (import.meta as any).env || {};
+
+const apiKey = metaEnv.VITE_FIREBASE_API_KEY || firebaseConfig.apiKey;
+const projectId = metaEnv.VITE_FIREBASE_PROJECT_ID || firebaseConfig.projectId;
+const appId = metaEnv.VITE_FIREBASE_APP_ID || firebaseConfig.appId;
+const authDomain = metaEnv.VITE_FIREBASE_AUTH_DOMAIN || firebaseConfig.authDomain;
+const firestoreDatabaseId = metaEnv.VITE_FIREBASE_DATABASE_ID || firebaseConfig.firestoreDatabaseId;
+const messagingSenderId = metaEnv.VITE_FIREBASE_MESSAGING_SENDER_ID || firebaseConfig.messagingSenderId;
+
+const resolvedConfig = {
+  apiKey: apiKey === "VITE_FIREBASE_API_KEY_PLACEHOLDER" ? "" : apiKey,
+  projectId,
+  appId,
+  authDomain,
+  firestoreDatabaseId,
+  storageBucket: firebaseConfig.storageBucket,
+  messagingSenderId,
+  measurementId: firebaseConfig.measurementId
+};
+
+const app = initializeApp(resolvedConfig);
 
 // Enable Modern Offline Persistence with localCache setting
 export const db = initializeFirestore(app, {
   localCache: persistentLocalCache({
     tabManager: persistentMultipleTabManager()
   })
-}, firebaseConfig.firestoreDatabaseId === "(default)" || !firebaseConfig.firestoreDatabaseId ? undefined : firebaseConfig.firestoreDatabaseId);
+}, resolvedConfig.firestoreDatabaseId === "(default)" || !resolvedConfig.firestoreDatabaseId ? undefined : resolvedConfig.firestoreDatabaseId);
 
 export const auth = getAuth(app);
 
