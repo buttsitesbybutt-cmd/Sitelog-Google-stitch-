@@ -1,8 +1,24 @@
 import React, { useState, useEffect } from "react";
 import { Project, Category, DailyLog, ReportTemplate } from "@/src/lib/firebase";
 import { getDailyLogs, getTemplates, saveTemplate } from "@/src/services/db";
-import { generateSiteReport } from "./PdfGenerator";
-import { FileText, Download, Palette, Settings2, Table, Layout, Save, CheckCircle2 } from "lucide-react";
+import { generateSiteReport, generateApprovalsReport } from "./PdfGenerator";
+import { 
+  FileText, 
+  Download, 
+  Palette, 
+  Settings2, 
+  Table, 
+  Layout, 
+  Save, 
+  CheckCircle2, 
+  Award, 
+  ShieldCheck, 
+  Search, 
+  FileCheck2, 
+  Clock, 
+  MapPin, 
+  Home 
+} from "lucide-react";
 import { motion } from "motion/react";
 import { cn } from "@/src/lib/utils";
 
@@ -12,6 +28,9 @@ interface ReportsProps {
 }
 
 export default function Reports({ projects, categories }: ReportsProps) {
+  const [activeTab, setActiveTab] = useState<"logs" | "approvals">("logs");
+  
+  // Daily Site Logs Report options
   const [options, setOptions] = useState({
     title: "Site Daily Log Report",
     subtitle: "Progress summary across all construction sites",
@@ -20,6 +39,14 @@ export default function Reports({ projects, categories }: ReportsProps) {
     includeLogs: true,
   });
 
+  // Approvals Report options
+  const [approvalsOptions, setApprovalsOptions] = useState({
+    title: "Official Site Work Approvals Report",
+    subtitle: "Accredited electrical inspections and passed clearances directory",
+    footer: "Certified by Al-injaz Electric - Quality Inspection Department",
+  });
+
+  const [approvalSearch, setApprovalSearch] = useState("");
   const [templates, setTemplates] = useState<ReportTemplate[]>([]);
   const [isGenerating, setIsGenerating] = useState(false);
   const [saveStatus, setSaveStatus] = useState<string | null>(null);
@@ -43,6 +70,17 @@ export default function Reports({ projects, categories }: ReportsProps) {
         }));
       }
       generateSiteReport(projects, categories, logsMap, options);
+    } catch (err) {
+      console.error(err);
+    } finally {
+      setIsGenerating(false);
+    }
+  };
+
+  const handleGenerateApprovals = () => {
+    setIsGenerating(true);
+    try {
+      generateApprovalsReport(projects, categories, approvalsOptions);
     } catch (err) {
       console.error(err);
     } finally {
@@ -81,128 +119,346 @@ export default function Reports({ projects, categories }: ReportsProps) {
     });
   };
 
+  const passedProjects = projects.filter(p => {
+    const isPassed = p.inspectionStatus === "Passed";
+    const searchString = `${p.title} ${p.villaNum} ${p.plotNum} ${p.inspectorName || ""}`.toLowerCase();
+    return isPassed && searchString.includes(approvalSearch.toLowerCase());
+  });
+
+  const rawPassedCount = projects.filter(p => p.inspectionStatus === "Passed").length;
+
   return (
-    <div className="grid md:grid-cols-3 gap-8">
-      <div className="md:col-span-2 space-y-6">
-        <section className="bg-white rounded-3xl p-6 border border-gray-100 shadow-sm space-y-6">
-          <div className="flex items-center space-x-2 text-gray-900 border-b border-gray-50 pb-4">
-             <Settings2 size={24} className="text-blue-500" />
-             <h2 className="text-xl font-black">Report Configuration</h2>
-          </div>
-
-          <div className="space-y-4">
-            <div className="space-y-1">
-              <label className="text-[10px] font-black uppercase text-gray-400">Header Title</label>
-              <input 
-                type="text" 
-                className="w-full bg-gray-50 border border-gray-200 rounded-xl px-4 py-3 outline-none focus:ring-2 focus:ring-blue-500"
-                value={options.title}
-                onChange={e => setOptions(o => ({ ...o, title: e.target.value }))}
-              />
-            </div>
-            <div className="space-y-1">
-              <label className="text-[10px] font-black uppercase text-gray-400">Subtitle</label>
-              <input 
-                type="text" 
-                className="w-full bg-gray-50 border border-gray-200 rounded-xl px-4 py-3 outline-none focus:ring-2 focus:ring-blue-500"
-                value={options.subtitle}
-                onChange={e => setOptions(o => ({ ...o, subtitle: e.target.value }))}
-              />
-            </div>
-            <div className="space-y-1">
-              <label className="text-[10px] font-black uppercase text-gray-400">Footer Text</label>
-              <textarea 
-                className="w-full bg-gray-50 border border-gray-200 rounded-xl px-4 py-2 h-20 outline-none focus:ring-2 focus:ring-blue-500 resize-none"
-                value={options.footer}
-                onChange={e => setOptions(o => ({ ...o, footer: e.target.value }))}
-              />
-            </div>
-          </div>
-
-          <div className="pt-4 border-t border-gray-50">
-            <label className="text-[10px] font-black uppercase text-gray-400 mb-2 block">Visual Theme</label>
-            <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
-              {["Modern Blue", "Sunshine", "Noir Gold", "Classic"].map((t) => (
-                <button
-                  key={t}
-                  onClick={() => setOptions(o => ({ ...o, theme: t as any }))}
-                  className={cn(
-                    "px-3 py-4 rounded-2xl border text-xs font-bold transition-all",
-                    options.theme === t 
-                      ? "border-blue-500 bg-blue-50 text-blue-700 ring-2 ring-blue-500/20" 
-                      : "border-gray-100 hover:bg-gray-50 text-gray-500"
-                  )}
-                >
-                  {t}
-                </button>
-              ))}
-            </div>
-          </div>
-
-          <div className="flex items-center space-x-3 pt-4 border-t border-gray-50">
-             <input 
-              type="checkbox" 
-              id="includeLogs" 
-              className="w-5 h-5 accent-blue-500 rounded-lg"
-              checked={options.includeLogs}
-              onChange={e => setOptions(o => ({ ...o, includeLogs: e.target.checked }))}
-            />
-             <label htmlFor="includeLogs" className="text-sm font-bold text-gray-700 cursor-pointer">
-               Include daily logs in report
-             </label>
-          </div>
-        </section>
+    <div className="space-y-6">
+      {/* Sub-tab Navigation */}
+      <div className="flex bg-gray-100 p-1 rounded-2xl max-w-md">
+        <button
+          onClick={() => setActiveTab("logs")}
+          className={cn(
+            "flex-1 py-2.5 rounded-xl text-xs font-black transition-all flex items-center justify-center space-x-2",
+            activeTab === "logs" 
+              ? "bg-white text-gray-900 shadow-sm" 
+              : "text-gray-500 hover:text-gray-700"
+          )}
+        >
+          <FileText size={16} />
+          <span>Daily Site Logs</span>
+        </button>
+        <button
+          onClick={() => setActiveTab("approvals")}
+          className={cn(
+            "flex-1 py-2.5 rounded-xl text-xs font-black transition-all flex items-center justify-center space-x-2",
+            activeTab === "approvals" 
+              ? "bg-emerald-600 text-white shadow-sm" 
+              : "text-gray-500 hover:text-gray-700"
+          )}
+        >
+          <Award size={16} />
+          <span>Passed Approvals ({rawPassedCount})</span>
+        </button>
       </div>
 
-      <div className="space-y-6">
-        <div className="bg-slate-900 rounded-3xl p-6 text-white shadow-xl shadow-slate-900/20 flex flex-col items-center text-center space-y-4">
-           <div className="w-16 h-16 bg-blue-500/20 text-blue-400 rounded-full flex items-center justify-center mb-2">
-             <FileText size={32} />
-           </div>
-           <div>
-             <h3 className="text-lg font-bold">Generate PDF</h3>
-             <p className="text-slate-400 text-sm mt-1">Export your site logs as a professionally formatted PDF report.</p>
-           </div>
-           
-           <button 
-            disabled={isGenerating}
-            onClick={handleGenerate}
-            className="w-full bg-blue-600 hover:bg-blue-700 text-white font-bold py-4 rounded-2xl flex items-center justify-center space-x-2 transition-all disabled:opacity-50"
-           >
-             <Download size={20} />
-             <span>{isGenerating ? "Processing..." : "Download Report"}</span>
-           </button>
+      {activeTab === "logs" ? (
+        // Standard Daily logs tab layout
+        <div className="grid md:grid-cols-3 gap-8">
+          <div className="md:col-span-2 space-y-6">
+            <section className="bg-white rounded-3xl p-6 border border-gray-100 shadow-sm space-y-6">
+              <div className="flex items-center space-x-2 text-gray-900 border-b border-gray-50 pb-4">
+                 <Settings2 size={24} className="text-blue-500" />
+                 <h2 className="text-xl font-black">Report Configuration</h2>
+              </div>
 
-           <button 
-             onClick={handleSaveTemplate}
-             className="w-full bg-slate-800 hover:bg-slate-700 text-slate-300 font-bold py-3 rounded-2xl border border-slate-700 flex items-center justify-center space-x-2 transition-all"
-           >
-             <Save size={18} />
-             <span>{saveStatus || "Save Template"}</span>
-           </button>
-        </div>
+              <div className="space-y-4">
+                <div className="space-y-1">
+                  <label className="text-[10px] font-black uppercase text-gray-400">Header Title</label>
+                  <input 
+                    type="text" 
+                    className="w-full bg-gray-50 border border-gray-200 rounded-xl px-4 py-3 outline-none focus:ring-2 focus:ring-blue-500"
+                    value={options.title}
+                    onChange={e => setOptions(o => ({ ...o, title: e.target.value }))}
+                  />
+                </div>
+                <div className="space-y-1">
+                  <label className="text-[10px] font-black uppercase text-gray-400">Subtitle</label>
+                  <input 
+                    type="text" 
+                    className="w-full bg-gray-50 border border-gray-200 rounded-xl px-4 py-3 outline-none focus:ring-2 focus:ring-blue-500"
+                    value={options.subtitle}
+                    onChange={e => setOptions(o => ({ ...o, subtitle: e.target.value }))}
+                  />
+                </div>
+                <div className="space-y-1">
+                  <label className="text-[10px] font-black uppercase text-gray-400">Footer Text</label>
+                  <textarea 
+                    className="w-full bg-gray-50 border border-gray-200 rounded-xl px-4 py-2 h-20 outline-none focus:ring-2 focus:ring-blue-500 resize-none"
+                    value={options.footer}
+                    onChange={e => setOptions(o => ({ ...o, footer: e.target.value }))}
+                  />
+                </div>
+              </div>
 
-        <section className="bg-white rounded-3xl p-6 border border-gray-100 shadow-sm space-y-4">
-           <h3 className="text-sm font-black text-gray-400 uppercase tracking-widest">My Saved Templates</h3>
-           <div className="space-y-2">
-             {templates.length > 0 ? templates.map((t) => (
+              <div className="pt-4 border-t border-gray-50">
+                <label className="text-[10px] font-black uppercase text-gray-400 mb-2 block">Visual Theme</label>
+                <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
+                  {["Modern Blue", "Sunshine", "Noir Gold", "Classic"].map((t) => (
+                    <button
+                      key={t}
+                      onClick={() => setOptions(o => ({ ...o, theme: t as any }))}
+                      className={cn(
+                        "px-3 py-4 rounded-2xl border text-xs font-bold transition-all",
+                        options.theme === t 
+                          ? "border-blue-500 bg-blue-50 text-blue-700 ring-2 ring-blue-500/20" 
+                          : "border-gray-100 hover:bg-gray-50 text-gray-500"
+                      )}
+                    >
+                      {t}
+                    </button>
+                  ))}
+                </div>
+              </div>
+
+              <div className="flex items-center space-x-3 pt-4 border-t border-gray-50">
+                 <input 
+                  type="checkbox" 
+                  id="includeLogs" 
+                  className="w-5 h-5 accent-blue-500 rounded-lg"
+                  checked={options.includeLogs}
+                  onChange={e => setOptions(o => ({ ...o, includeLogs: e.target.checked }))}
+                />
+                 <label htmlFor="includeLogs" className="text-sm font-bold text-gray-700 cursor-pointer">
+                   Include daily logs in report
+                 </label>
+              </div>
+            </section>
+          </div>
+
+          <div className="space-y-6">
+            <div className="bg-slate-900 rounded-3xl p-6 text-white shadow-xl shadow-slate-900/20 flex flex-col items-center text-center space-y-4">
+               <div className="w-16 h-16 bg-blue-500/20 text-blue-400 rounded-full flex items-center justify-center mb-2">
+                 <FileText size={32} />
+               </div>
+               <div>
+                 <h3 className="text-lg font-bold">Generate PDF</h3>
+                 <p className="text-slate-400 text-sm mt-1">Export your site logs as a professionally formatted PDF report.</p>
+               </div>
+               
                <button 
-                key={t.id}
-                onClick={() => applyTemplate(t)}
-                className="w-full text-left p-3 rounded-xl border border-gray-50 hover:border-blue-200 hover:bg-blue-50 transition-all flex items-center justify-between group"
+                disabled={isGenerating}
+                onClick={handleGenerate}
+                className="w-full bg-blue-600 hover:bg-blue-700 text-white font-bold py-4 rounded-2xl flex items-center justify-center space-x-2 transition-all disabled:opacity-50"
                >
-                 <div>
-                   <p className="font-bold text-gray-800 text-sm truncate">{t.name}</p>
-                   <p className="text-[10px] text-gray-400 font-medium">{t.theme}</p>
-                 </div>
-                 <Layout size={16} className="text-gray-300 group-hover:text-blue-500" />
+                 <Download size={20} />
+                 <span>{isGenerating ? "Processing..." : "Download Report"}</span>
                </button>
-             )) : (
-                <p className="text-xs text-gray-400 italic py-4">No templates saved yet.</p>
-             )}
-           </div>
-        </section>
-      </div>
+
+               <button 
+                 onClick={handleSaveTemplate}
+                 className="w-full bg-slate-800 hover:bg-slate-700 text-slate-300 font-bold py-3 rounded-2xl border border-slate-700 flex items-center justify-center space-x-2 transition-all"
+               >
+                 <Save size={18} />
+                 <span>{saveStatus || "Save Template"}</span>
+               </button>
+            </div>
+
+            <section className="bg-white rounded-3xl p-6 border border-gray-100 shadow-sm space-y-4">
+               <h3 className="text-sm font-black text-gray-400 uppercase tracking-widest">My Saved Templates</h3>
+               <div className="space-y-2">
+                 {templates.length > 0 ? templates.map((t) => (
+                   <button 
+                    key={t.id}
+                    onClick={() => applyTemplate(t)}
+                    className="w-full text-left p-3 rounded-xl border border-gray-50 hover:border-blue-200 hover:bg-blue-50 transition-all flex items-center justify-between group"
+                   >
+                     <div>
+                       <p className="font-bold text-gray-800 text-sm truncate">{t.name}</p>
+                       <p className="text-[10px] text-gray-400 font-medium">{t.theme}</p>
+                     </div>
+                     <Layout size={16} className="text-gray-300 group-hover:text-blue-500" />
+                   </button>
+                 )) : (
+                    <p className="text-xs text-gray-400 italic py-4">No templates saved yet.</p>
+                 )}
+               </div>
+            </section>
+          </div>
+        </div>
+      ) : (
+        // Gorgeous "Passed Approvals Hub" layout with a real Live Document Preview
+        <div className="grid md:grid-cols-3 gap-8">
+          <div className="md:col-span-2 space-y-6">
+            {/* Live Document Preview */}
+            <div className="bg-gradient-to-br from-emerald-50 to-teal-50 rounded-3xl p-1 shadow-inner border border-emerald-100">
+              <div className="bg-white m-3 rounded-2xl border border-slate-200/80 p-6 md:p-8 shadow-xl min-h-[500px] flex flex-col justify-between relative overflow-hidden">
+                {/* Visual Stamp Accent */}
+                <div className="absolute right-4 top-16 border-4 border-emerald-500/30 text-emerald-500/30 font-black px-4 py-2 rounded-xl text-xs uppercase uppercase select-none tracking-widest transform rotate-12 pointer-events-none">
+                  Verified passed
+                </div>
+
+                <div>
+                  {/* Certificate Header Banner */}
+                  <div className="border-b-2 border-emerald-500 pb-4 mb-6 flex flex-col justify-between items-start md:flex-row">
+                    <div>
+                      <h4 className="text-xs font-black uppercase text-emerald-600 tracking-wider">Accredited Site Report</h4>
+                      <h3 className="text-xl font-extrabold text-slate-900 tracking-tight">{approvalsOptions.title}</h3>
+                      <p className="text-xs text-slate-500 mt-1 max-w-sm">{approvalsOptions.subtitle}</p>
+                    </div>
+                    <div className="text-right mt-3 md:mt-0 text-[10px] text-slate-400 font-bold space-y-0.5">
+                      <p className="text-emerald-500 font-extrabold uppercase">Official Document</p>
+                      <p>Date: {new Date().toLocaleDateString()}</p>
+                      <p>Agency: Al-injaz Electric MEA</p>
+                    </div>
+                  </div>
+
+                  {/* Certification statement */}
+                  <div className="bg-slate-50 rounded-xl p-4 border border-slate-100 mb-6">
+                    <p className="text-[10px] font-black tracking-wider uppercase text-slate-400 mb-1">Official Certification</p>
+                    <p className="text-xs text-slate-600 leading-relaxed">
+                      This directory compiles and logs all site units, electrical plots, and work installations that have undergone authorized verification and are certified as <strong>PASSED</strong> with a 100% completion status.
+                    </p>
+                  </div>
+
+                  {/* Search bar inside the document */}
+                  <div className="relative mb-4">
+                    <Search className="absolute left-3 top-1/2 -translate-y-1/2 text-gray-400" size={14} />
+                    <input 
+                      type="text" 
+                      placeholder="Search within approved items..."
+                      className="w-full pl-9 pr-4 py-1.5 bg-gray-50 border border-gray-200 rounded-xl text-xs outline-none focus:ring-1 focus:ring-emerald-500 transition-all"
+                      value={approvalSearch}
+                      onChange={(e) => setApprovalSearch(e.target.value)}
+                    />
+                  </div>
+
+                  {/* Dynamic Table of Approvals */}
+                  <div className="overflow-x-auto">
+                    <table className="w-full text-left text-xs border-collapse">
+                      <thead>
+                        <tr className="border-b border-slate-100 font-bold text-slate-400 text-[10px] uppercase">
+                          <th className="py-2.5">Villa</th>
+                          <th className="py-2.5">Plot</th>
+                          <th className="py-2.5">Work Title</th>
+                          <th className="py-2.5">Category</th>
+                          <th className="py-2.5">Inspector</th>
+                          <th className="py-2.5 text-right">Status</th>
+                        </tr>
+                      </thead>
+                      <tbody className="divide-y divide-slate-50 font-medium text-slate-700">
+                        {passedProjects.length > 0 ? passedProjects.map((p) => {
+                          const cat = categories.find(c => c.id === p.categoryId);
+                          return (
+                            <tr key={p.id} className="hover:bg-slate-50/50 transition-colors">
+                              <td className="py-3 font-semibold text-slate-900">{p.villaNum}</td>
+                              <td className="py-3">{p.plotNum}</td>
+                              <td className="py-3 text-slate-900">{p.title}</td>
+                              <td className="py-3 text-slate-500">{cat?.name || "General"}</td>
+                              <td className="py-3 italic text-slate-500 text-[11px]">{p.inspectorName || "Administrative representative"}</td>
+                              <td className="py-3 text-right">
+                                <span className="bg-emerald-100 text-emerald-800 text-[9px] px-2 py-0.5 rounded-full font-black">
+                                  PASSED
+                                </span>
+                              </td>
+                            </tr>
+                          );
+                        }) : (
+                          <tr>
+                            <td colSpan={6} className="py-8 text-center text-gray-400 italic">
+                              {approvalSearch ? "No approved works match your search criteria." : "No inspections marked as Passed yet. Add/edit projects to pass their inspections!"}
+                            </td>
+                          </tr>
+                        )}
+                      </tbody>
+                    </table>
+                  </div>
+                </div>
+
+                {/* Signatures & Seal Area */}
+                <div className="border-t border-slate-100 pt-6 mt-8 grid grid-cols-2 gap-4 items-end">
+                  <div className="space-y-1 text-slate-400 text-[10px]">
+                    <div className="h-0.5 w-32 bg-slate-300 mb-2"></div>
+                    <p className="font-bold text-slate-700">Al-injaz Supervising Engineer</p>
+                    <p>Accredited Electrical Inspector Representative</p>
+                  </div>
+                  
+                  <div className="flex justify-end">
+                    {/* Visual Seal stamp */}
+                    <div className="border-2 border-emerald-500/80 rounded-xl p-2.5 text-center text-[10px] text-emerald-600 max-w-[140px] font-black rotate-[-3deg] shadow-sm bg-emerald-50/20">
+                      <p className="leading-tight tracking-wider">OFFICIALLY PASSED</p>
+                      <span className="text-[7px] text-slate-400 font-bold block mt-1 tracking-tight">AL-INJAZ ELECTRICAL DEV</span>
+                    </div>
+                  </div>
+                </div>
+              </div>
+            </div>
+          </div>
+
+          {/* Configuration & Action Side Control Panel */}
+          <div className="space-y-6">
+            <div className="bg-gradient-to-b from-slate-900 to-slate-950 rounded-3xl p-6 text-white shadow-xl flex flex-col items-center text-center space-y-4">
+               <div className="w-16 h-16 bg-emerald-500/20 text-emerald-400 rounded-full flex items-center justify-center mb-2 animate-bounce">
+                 <ShieldCheck size={32} />
+               </div>
+               <div>
+                 <h3 className="text-lg font-black">All-in-One Approvals PDF</h3>
+                 <p className="text-slate-400 text-sm mt-1">Export all certificate work items with Passed Inspections as a unified official cleared document.</p>
+               </div>
+
+               <div className="bg-emerald-500/10 text-emerald-400 text-xs px-3 py-1.5 rounded-xl font-bold w-full border border-emerald-500/20">
+                 {projects.filter(p => p.inspectionStatus === "Passed").length} Tasks Verified & Approved
+               </div>
+               
+               <button 
+                disabled={isGenerating || passedProjects.length === 0}
+                onClick={handleGenerateApprovals}
+                className="w-full bg-emerald-600 hover:bg-emerald-700 disabled:opacity-50 text-white font-black py-4 rounded-2xl flex items-center justify-center space-x-2 shadow-lg shadow-emerald-600/35 transition-all"
+               >
+                 <Download size={20} />
+                 <span>{isGenerating ? "Processing..." : "Download Approvals PDF"}</span>
+               </button>
+
+               <div className="text-[10px] text-slate-400 font-bold max-w-xs leading-relaxed">
+                 * Ensures compliance with electrical regulations. Incorporates official digital verification stamps and authorization lines.
+               </div>
+            </div>
+
+            <section className="bg-white rounded-3xl p-6 border border-gray-100 shadow-sm space-y-4">
+              <div className="flex items-center space-x-2 border-b border-gray-50 pb-3">
+                 <Settings2 size={16} className="text-emerald-500" />
+                 <h3 className="font-extrabold text-gray-900 text-sm uppercase tracking-wider">Document Customizer</h3>
+              </div>
+
+              <div className="space-y-3">
+                <div className="space-y-1">
+                  <label className="text-[9px] font-black uppercase text-gray-400">Header Title</label>
+                  <input 
+                    type="text" 
+                    className="w-full bg-gray-50 border border-gray-200 rounded-xl px-3 py-2 text-xs focus:ring-2 focus:ring-emerald-500 outline-none"
+                    value={approvalsOptions.title}
+                    onChange={e => setApprovalsOptions(o => ({ ...o, title: e.target.value }))}
+                  />
+                </div>
+
+                <div className="space-y-1">
+                  <label className="text-[9px] font-black uppercase text-gray-400">Subtitle</label>
+                  <input 
+                    type="text" 
+                    className="w-full bg-gray-50 border border-gray-200 rounded-xl px-3 py-2 text-xs focus:ring-2 focus:ring-emerald-500 outline-none"
+                    value={approvalsOptions.subtitle}
+                    onChange={e => setApprovalsOptions(o => ({ ...o, subtitle: e.target.value }))}
+                  />
+                </div>
+
+                <div className="space-y-1">
+                  <label className="text-[9px] font-black uppercase text-gray-400">Footer Text</label>
+                  <textarea 
+                    className="w-full bg-gray-50 border border-gray-200 rounded-xl px-3 py-2 text-xs h-16 focus:ring-2 focus:ring-emerald-500 outline-none resize-none"
+                    value={approvalsOptions.footer}
+                    onChange={e => setApprovalsOptions(o => ({ ...o, footer: e.target.value }))}
+                  />
+                </div>
+              </div>
+            </section>
+          </div>
+        </div>
+      )}
     </div>
   );
 }
