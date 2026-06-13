@@ -26,6 +26,8 @@ export default function AuthPage() {
   const [newPasswordConfirm, setNewPasswordConfirm] = useState("");
   const [showNewPasswordsForm, setShowNewPasswordsForm] = useState(false);
   const [devCodeBypass, setDevCodeBypass] = useState<string | null>(null);
+  const [serviceAccountError, setServiceAccountError] = useState(false);
+  const [fallbackResetSent, setFallbackResetSent] = useState(false);
 
   const getVerificationEndpoint = () => {
     const metaEnv = (import.meta as any).env || {};
@@ -35,6 +37,19 @@ export default function AuthPage() {
       return `${base}/api/send-verification-code`;
     }
     return "/api/send-verification-code";
+  };
+
+  const fetchWithTimeout = async (url: string, options: any, timeoutMs = 6000) => {
+    const controller = new AbortController();
+    const id = setTimeout(() => controller.abort(), timeoutMs);
+    try {
+      const res = await fetch(url, { ...options, signal: controller.signal });
+      clearTimeout(id);
+      return res;
+    } catch (err: any) {
+      clearTimeout(id);
+      throw err;
+    }
   };
 
   const getFriendlyError = (err: any) => {
@@ -71,6 +86,8 @@ export default function AuthPage() {
     setVerificationCode("");
     setShowNewPasswordsForm(false);
     setDevCodeBypass(null);
+    setServiceAccountError(false);
+    setFallbackResetSent(false);
   };
 
   const handleSubmit = async (e: React.FormEvent) => {
@@ -125,7 +142,7 @@ export default function AuthPage() {
         let response: Response | null = null;
         let fetchErrorOccurred = false;
         try {
-          response = await fetch(getVerificationEndpoint(), {
+          response = await fetchWithTimeout(getVerificationEndpoint(), {
             method: "POST",
             headers: {
               "Content-Type": "application/json",
@@ -178,7 +195,7 @@ export default function AuthPage() {
         let response: Response | null = null;
         let fetchErrorOccurred = false;
         try {
-          response = await fetch(getVerificationEndpoint(), {
+          response = await fetchWithTimeout(getVerificationEndpoint(), {
             method: "POST",
             headers: {
               "Content-Type": "application/json",
@@ -270,6 +287,22 @@ export default function AuthPage() {
     }
   };
 
+  const handleSendFallbackResetEmail = async () => {
+    setError(null);
+    setSuccessMsg(null);
+    setLoading(true);
+    try {
+      await resetPassword(email.toLowerCase().trim());
+      setSuccessMsg("We have successfully sent a secure Firebase password reset email to your inbox. Please check your spam folder and verify the link to change your password.");
+      setFallbackResetSent(true);
+    } catch (err: any) {
+      console.error("Fallback reset email error:", err);
+      setError(getFriendlyError(err));
+    } finally {
+      setLoading(false);
+    }
+  };
+
   const handleResetPasswordWithNewCredentials = async (e: React.FormEvent) => {
     e.preventDefault();
     setError(null);
@@ -286,10 +319,32 @@ export default function AuthPage() {
 
     setLoading(true);
     try {
-      // Send secure reset email trigger per secure standards
-      await resetPassword(email);
-      setSuccessMsg("Password reset successfully completed! Instructions sent via email. You can now Sign In.");
+      // Update the user's password securely on the backend with Firebase Admin Auth
+      const response = await fetch("/api/update-user-password", {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+        },
+        body: JSON.stringify({
+          email: email.toLowerCase().trim(),
+          code: verificationCode.trim(),
+          newPassword: newPassword,
+        }),
+      });
+
+      const resData = await response.json().catch(() => ({}));
+      if (!response.ok) {
+        if (resData.serviceAccountMissing) {
+          setServiceAccountError(true);
+          throw new Error(resData.message || resData.error);
+        }
+        throw new Error(resData.error || "Failed to update your password on the authentication server.");
+      }
+
+      setSuccessMsg(resData.message || "Your password has been successfully updated! You can now sign in using your new credentials.");
       setShowNewPasswordsForm(false);
+      setNewPassword("");
+      setNewPasswordConfirm("");
       setMode("signin");
     } catch (err: any) {
       setError(getFriendlyError(err));
@@ -383,59 +438,95 @@ export default function AuthPage() {
           {mode === "verify" ? (
             showNewPasswordsForm ? (
               <form onSubmit={handleResetPasswordWithNewCredentials} className="space-y-4">
-                <div className="space-y-1 text-left">
-                  <label className="text-[11px] font-bold text-slate-400 uppercase tracking-wider block ml-1">New Password</label>
-                  <div className="relative">
-                    <Lock size={16} className="absolute left-3.5 top-1/2 -translate-y-1/2 text-slate-500" />
-                    <input
-                      type={showPassword ? "text" : "password"}
-                      required
-                      placeholder="At least 6 characters"
-                      value={newPassword}
-                      onChange={(e) => setNewPassword(e.target.value)}
-                      disabled={loading}
-                      className="w-full bg-slate-900/60 border border-slate-700/50 rounded-xl py-3 pl-10 pr-10 text-sm text-slate-200 placeholder:text-slate-500 focus:outline-none focus:border-orange-500/80 focus:ring-1 focus:ring-orange-500/40 transition-all"
-                    />
+                {serviceAccountError ? (
+                  <div className="space-y-4 text-left">
+                    <div className="p-4 bg-slate-900/60 border border-slate-700/50 rounded-2xl space-y-2.5">
+                      <p className="text-xs text-slate-300 font-medium leading-relaxed">
+                        To reset your password in this preview sandbox without complex backend Admin SDK configurations, you can trigger a standard, secure password reset email sent directly by Firebase:
+                      </p>
+                    </div>
+
                     <button
                       type="button"
-                      onClick={() => setShowPassword(!showPassword)}
-                      className="absolute right-3 top-1/2 -translate-y-1/2 text-slate-500 hover:text-slate-300 transition-colors"
+                      onClick={handleSendFallbackResetEmail}
+                      disabled={loading || fallbackResetSent}
+                      className="w-full bg-gradient-to-r from-slate-700 to-slate-800 text-slate-200 border border-slate-600/50 hover:bg-slate-700/80 font-bold py-3 px-4 rounded-xl flex items-center justify-center space-x-2 transition-all active:scale-98"
                     >
-                      {showPassword ? <EyeOff size={16} /> : <Eye size={16} />}
+                      {loading ? (
+                        <div className="w-5 h-5 border-2 border-slate-300 border-t-transparent rounded-full animate-spin"></div>
+                      ) : (
+                        <>
+                          <Mail size={16} className="text-orange-400" />
+                          <span>{fallbackResetSent ? "Reset Email Dispatched!" : "Send Reset Email via Google"}</span>
+                        </>
+                      )}
+                    </button>
+
+                    <button
+                      type="button"
+                      onClick={() => handleModeChange("signin")}
+                      className="w-full text-center text-xs text-slate-400 hover:text-orange-400 transition-colors pt-2 block font-semibold"
+                    >
+                      Return to Sign In Page
                     </button>
                   </div>
-                </div>
+                ) : (
+                  <>
+                    <div className="space-y-1 text-left">
+                      <label className="text-[11px] font-bold text-slate-400 uppercase tracking-wider block ml-1">New Password</label>
+                      <div className="relative">
+                        <Lock size={16} className="absolute left-3.5 top-1/2 -translate-y-1/2 text-slate-500" />
+                        <input
+                          type={showPassword ? "text" : "password"}
+                          required
+                          placeholder="At least 6 characters"
+                          value={newPassword}
+                          onChange={(e) => setNewPassword(e.target.value)}
+                          disabled={loading}
+                          className="w-full bg-slate-900/60 border border-slate-700/50 rounded-xl py-3 pl-10 pr-10 text-sm text-slate-200 placeholder:text-slate-500 focus:outline-none focus:border-orange-500/80 focus:ring-1 focus:ring-orange-500/40 transition-all"
+                        />
+                        <button
+                          type="button"
+                          onClick={() => setShowPassword(!showPassword)}
+                          className="absolute right-3 top-1/2 -translate-y-1/2 text-slate-500 hover:text-slate-300 transition-colors"
+                        >
+                          {showPassword ? <EyeOff size={16} /> : <Eye size={16} />}
+                        </button>
+                      </div>
+                    </div>
 
-                <div className="space-y-1 text-left">
-                  <label className="text-[11px] font-bold text-slate-400 uppercase tracking-wider block ml-1">Confirm New Password</label>
-                  <div className="relative">
-                    <Lock size={16} className="absolute left-3.5 top-1/2 -translate-y-1/2 text-slate-500" />
-                    <input
-                      type={showPassword ? "text" : "password"}
-                      required
-                      placeholder="Repeat new password"
-                      value={newPasswordConfirm}
-                      onChange={(e) => setNewPasswordConfirm(e.target.value)}
+                    <div className="space-y-1 text-left">
+                      <label className="text-[11px] font-bold text-slate-400 uppercase tracking-wider block ml-1">Confirm New Password</label>
+                      <div className="relative">
+                        <Lock size={16} className="absolute left-3.5 top-1/2 -translate-y-1/2 text-slate-500" />
+                        <input
+                          type={showPassword ? "text" : "password"}
+                          required
+                          placeholder="Repeat new password"
+                          value={newPasswordConfirm}
+                          onChange={(e) => setNewPasswordConfirm(e.target.value)}
+                          disabled={loading}
+                          className="w-full bg-slate-900/60 border border-slate-700/50 rounded-xl py-3 pl-10 pr-4 text-sm text-slate-200 placeholder:text-slate-500 focus:outline-none focus:border-orange-500/80 focus:ring-1 focus:ring-orange-500/40 transition-all font-bold"
+                        />
+                      </div>
+                    </div>
+
+                    <button
+                      type="submit"
                       disabled={loading}
-                      className="w-full bg-slate-900/60 border border-slate-700/50 rounded-xl py-3 pl-10 pr-4 text-sm text-slate-200 placeholder:text-slate-500 focus:outline-none focus:border-orange-500/80 focus:ring-1 focus:ring-orange-500/40 transition-all font-bold"
-                    />
-                  </div>
-                </div>
-
-                <button
-                  type="submit"
-                  disabled={loading}
-                  className="w-full bg-gradient-to-r from-orange-500 via-orange-600 to-red-600 text-white font-black py-3.5 rounded-xl hover:opacity-95 transition-opacity active:scale-98 shadow-lg shadow-orange-500/10 flex items-center justify-center space-x-2"
-                >
-                  {loading ? (
-                    <div className="w-5 h-5 border-2 border-white border-t-transparent rounded-full animate-spin"></div>
-                  ) : (
-                    <>
-                      <ShieldCheck size={18} />
-                      <span>Update Password & Sign In</span>
-                    </>
-                  )}
-                </button>
+                      className="w-full bg-gradient-to-r from-orange-500 via-orange-600 to-red-600 text-white font-black py-3.5 rounded-xl hover:opacity-95 transition-opacity active:scale-98 shadow-lg shadow-orange-500/10 flex items-center justify-center space-x-2"
+                    >
+                      {loading ? (
+                        <div className="w-5 h-5 border-2 border-white border-t-transparent rounded-full animate-spin"></div>
+                      ) : (
+                        <>
+                          <ShieldCheck size={18} />
+                          <span>Update Password & Sign In</span>
+                        </>
+                      )}
+                    </button>
+                  </>
+                )}
               </form>
             ) : (
               <form onSubmit={handleVerifyCodeSubmit} className="space-y-4">

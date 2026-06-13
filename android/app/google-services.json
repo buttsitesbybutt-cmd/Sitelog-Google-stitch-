@@ -1,0 +1,30 @@
+{
+  "project_info": {
+    "project_number": "840183247140",
+    "project_id": "al-injaz-management-mep",
+    "storage_bucket": "al-injaz-management-mep.appspot.com"
+  },
+  "client": [
+    {
+      "client_info": {
+        "mobilesdk_app_id": "1:840183247140:android:b7b88c099d2cc93ca143b1",
+        "android_client_info": {
+          "package_name": "com.sitelog.app"
+        }
+      },
+      "oauth_client": [],
+      "api_key": [
+        {
+          "current_key": "AIzaSyDXwtWOF8CQeCZXKk9CG8TTmacvZrAK46k"
+        }
+      ],
+      "services": {
+        "appinvite_service": {
+          "status": 1,
+          "other_platform_oauth_client": []
+        }
+      }
+    }
+  ],
+  "configuration_version": "1"
+}
