@@ -1,0 +1,8 @@
+{
+  "name": "Al-injaz Electric Report",
+  "description": "A mobile-friendly construction site management tool for tracking project progress, daily logs, and generating professional PDF reports.",
+  "requestFramePermissions": [],
+  "majorCapabilities": [
+    "MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"
+  ]
+}

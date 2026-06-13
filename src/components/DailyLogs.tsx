@@ -1,0 +1,279 @@
+import React, { useState, useEffect } from "react";
+import { Project, DailyLog } from "@/src/lib/firebase";
+import { getDailyLogs, saveDailyLog } from "@/src/services/db";
+import { Plus, Save, Calendar, Clock, HardHat, Package, Edit2, Trash2, Camera, X } from "lucide-react";
+import { motion, AnimatePresence } from "motion/react";
+import { formatDate } from "@/src/lib/utils";
+
+interface DailyLogsProps {
+  project: Project;
+}
+
+export default function DailyLogs({ project }: DailyLogsProps) {
+  const [logs, setLogs] = useState<DailyLog[]>([]);
+  const [isAdding, setIsAdding] = useState(false);
+  const [editingLog, setEditingLog] = useState<DailyLog | null>(null);
+  const [isLoading, setIsLoading] = useState(true);
+
+  useEffect(() => {
+    loadLogs();
+  }, [project.id]);
+
+  const loadLogs = async () => {
+    setIsLoading(true);
+    const data = await getDailyLogs(project.id);
+    setLogs(data);
+    setIsLoading(false);
+  };
+
+  const handleSave = async (logData: Omit<DailyLog, 'id' | 'userId' | 'projectId'>, id?: string) => {
+    await saveDailyLog(project.id, logData, id);
+    setIsAdding(false);
+    setEditingLog(null);
+    loadLogs();
+  };
+
+  return (
+    <div className="space-y-6">
+      <div className="flex items-center justify-between">
+        <h3 className="text-lg font-black text-gray-900">Daily Progress Logs</h3>
+        <button 
+          onClick={() => setIsAdding(true)}
+          className="flex items-center space-x-2 bg-blue-600 text-white px-4 py-2 rounded-xl text-sm font-bold shadow-lg shadow-blue-500/20"
+        >
+          <Plus size={18} />
+          <span>Add Log</span>
+        </button>
+      </div>
+
+      <AnimatePresence>
+        {(isAdding || editingLog) && (
+          <LogForm 
+            log={editingLog || undefined} 
+            onSave={handleSave} 
+            onCancel={() => { setIsAdding(false); setEditingLog(null); }} 
+          />
+        )}
+      </AnimatePresence>
+
+      <div className="space-y-4">
+        {isLoading ? (
+          <div className="flex justify-center p-12">
+            <div className="w-8 h-8 border-4 border-blue-600 border-t-transparent rounded-full animate-spin"></div>
+          </div>
+        ) : logs.length > 0 ? (
+          logs.map((log) => (
+            <motion.div 
+              layout
+              key={log.id}
+              className="bg-white border border-gray-100 rounded-2xl p-5 shadow-sm space-y-4"
+            >
+              <div className="flex items-start justify-between">
+                <div>
+                  <div className="flex items-center space-x-2 text-blue-600 mb-1">
+                    <Calendar size={16} />
+                    <span className="font-bold text-sm">{formatDate(log.date)}</span>
+                  </div>
+                  <h4 className="font-bold text-gray-900">{log.description}</h4>
+                </div>
+                <button 
+                  onClick={() => setEditingLog(log)}
+                  className="p-2 text-gray-400 hover:text-blue-600 transition-colors"
+                >
+                  <Edit2 size={18} />
+                </button>
+              </div>
+
+              <div className="grid grid-cols-2 md:grid-cols-4 gap-4 py-3 border-y border-gray-50 text-xs">
+                <div className="flex items-center space-x-2">
+                  <div className="w-8 h-8 rounded-lg bg-orange-50 text-orange-600 flex items-center justify-center">
+                    <HardHat size={16} />
+                  </div>
+                  <div>
+                    <p className="text-gray-400 font-bold uppercase tracking-widest text-[9px]">Workers</p>
+                    <p className="font-bold text-gray-900">{log.workers || 0}</p>
+                  </div>
+                </div>
+                <div className="flex items-center space-x-2">
+                   <div className="w-8 h-8 rounded-lg bg-blue-50 text-blue-600 flex items-center justify-center">
+                    <Clock size={16} />
+                  </div>
+                  <div>
+                    <p className="text-gray-400 font-bold uppercase tracking-widest text-[9px]">Hours</p>
+                    <p className="font-bold text-gray-900">{log.hours || 0}</p>
+                  </div>
+                </div>
+              </div>
+
+              {log.materials && (
+                <div className="flex items-start space-x-2">
+                  <Package size={16} className="text-gray-400 mt-0.5" />
+                  <p className="text-sm text-gray-600"><span className="font-bold text-gray-900">Materials:</span> {log.materials}</p>
+                </div>
+              )}
+
+              {log.notes && (
+                <div className="p-3 bg-gray-50 rounded-xl text-xs text-gray-600 border border-gray-100 italic">
+                  &ldquo;{log.notes}&rdquo;
+                </div>
+              )}
+
+              {log.photoUrls && log.photoUrls.length > 0 && (
+                <div className="flex space-x-2 overflow-x-auto pb-2 scrollbar-none">
+                  {log.photoUrls.map((url, i) => (
+                    <img key={i} src={url} alt="Progress" className="w-20 h-20 object-cover rounded-xl border border-gray-100 flex-shrink-0" />
+                  ))}
+                </div>
+              )}
+            </motion.div>
+          ))
+        ) : (
+          <div className="text-center p-12 bg-white border border-dashed border-gray-200 rounded-3xl text-gray-400">
+            <p className="text-sm">No daily logs yet. Add your first progress update!</p>
+          </div>
+        )}
+      </div>
+    </div>
+  );
+}
+
+function LogForm({ log, onSave, onCancel }: { log?: DailyLog; onSave: (data: any, id?: string) => void; onCancel: () => void }) {
+  const [formData, setFormData] = useState({
+    date: log?.date || new Date().toISOString().split('T')[0],
+    description: log?.description || "",
+    workers: log?.workers || 0,
+    hours: log?.hours || 0,
+    materials: log?.materials || "",
+    notes: log?.notes || "",
+    photoUrls: log?.photoUrls || [],
+  });
+
+  const [photoUrl, setPhotoUrl] = useState("");
+
+  const handleAddPhoto = () => {
+    if (photoUrl) {
+      setFormData(prev => ({ ...prev, photoUrls: [...prev.photoUrls, photoUrl] }));
+      setPhotoUrl("");
+    }
+  };
+
+  return (
+    <motion.div 
+      initial={{ opacity: 0, scale: 0.95 }}
+      animate={{ opacity: 1, scale: 1 }}
+      exit={{ opacity: 0, scale: 0.95 }}
+      className="bg-white border-2 border-blue-100 rounded-2xl p-5 shadow-xl space-y-4 relative z-10"
+    >
+      <div className="flex items-center justify-between">
+         <h4 className="font-black text-gray-900">{log ? "Edit Daily Log" : "New Daily Log"}</h4>
+         <button onClick={onCancel} className="text-gray-400 hover:text-red-500"><X size={20} /></button>
+      </div>
+
+      <div className="grid grid-cols-2 gap-4">
+        <div className="space-y-1">
+          <label className="text-[10px] font-black uppercase text-gray-400">Date</label>
+          <input 
+            type="date" 
+            className="w-full bg-gray-50 border border-gray-200 rounded-xl p-2 text-sm font-bold" 
+            value={formData.date}
+            onChange={e => setFormData(p => ({ ...p, date: e.target.value }))}
+          />
+        </div>
+        <div className="space-y-1">
+           <label className="text-[10px] font-black uppercase text-gray-400">Description</label>
+           <input 
+            type="text" 
+            placeholder="What was done?"
+            className="w-full bg-gray-50 border border-gray-200 rounded-xl p-2 text-sm font-bold" 
+            value={formData.description}
+            onChange={e => setFormData(p => ({ ...p, description: e.target.value }))}
+          />
+        </div>
+      </div>
+
+      <div className="grid grid-cols-2 gap-4">
+        <div className="space-y-1">
+          <label className="text-[10px] font-black uppercase text-gray-400">Workers</label>
+          <input 
+            type="number" 
+            className="w-full bg-gray-50 border border-gray-200 rounded-xl p-2 text-sm font-bold" 
+            value={formData.workers}
+            onChange={e => setFormData(p => ({ ...p, workers: parseInt(e.target.value) || 0 }))}
+          />
+        </div>
+        <div className="space-y-1">
+           <label className="text-[10px] font-black uppercase text-gray-400">Hours worked</label>
+           <input 
+            type="number" 
+            className="w-full bg-gray-50 border border-gray-200 rounded-xl p-2 text-sm font-bold" 
+            value={formData.hours}
+            onChange={e => setFormData(p => ({ ...p, hours: parseFloat(e.target.value) || 0 }))}
+          />
+        </div>
+      </div>
+
+      <div className="space-y-1">
+        <label className="text-[10px] font-black uppercase text-gray-400">Materials used</label>
+        <input 
+          type="text" 
+          placeholder="Cement, steel, etc."
+          className="w-full bg-gray-50 border border-gray-200 rounded-xl p-2 text-sm font-bold" 
+          value={formData.materials}
+          onChange={e => setFormData(p => ({ ...p, materials: e.target.value }))}
+        />
+      </div>
+
+       <div className="space-y-1">
+        <label className="text-[10px] font-black uppercase text-gray-400">Notes</label>
+        <textarea 
+          className="w-full bg-gray-50 border border-gray-200 rounded-xl p-2 text-sm font-bold h-20 resize-none" 
+          value={formData.notes}
+          onChange={e => setFormData(p => ({ ...p, notes: e.target.value }))}
+        />
+      </div>
+
+      <div className="space-y-2">
+        <label className="text-[10px] font-black uppercase text-gray-400">Photos (URL)</label>
+        <div className="flex space-x-2">
+          <input 
+            type="text" 
+            placeholder="Paste image URL..."
+            className="flex-1 bg-gray-50 border border-gray-200 rounded-xl p-2 text-sm font-bold" 
+            value={photoUrl}
+            onChange={e => setPhotoUrl(e.target.value)}
+          />
+          <button 
+            type="button"
+            onClick={handleAddPhoto}
+            className="p-2 bg-gray-100 rounded-xl hover:bg-gray-200"
+          >
+            <Camera size={20} />
+          </button>
+        </div>
+        {formData.photoUrls.length > 0 && (
+          <div className="flex flex-wrap gap-2">
+             {formData.photoUrls.map((url, i) => (
+               <div key={i} className="relative group">
+                 <img src={url} className="w-12 h-12 rounded-lg object-cover" alt="Log" />
+                 <button 
+                  onClick={() => setFormData(p => ({ ...p, photoUrls: p.photoUrls.filter((_, idx) => idx !== i) }))}
+                  className="absolute -top-1 -right-1 bg-red-500 text-white rounded-full p-0.5 opacity-0 group-hover:opacity-100 transition-opacity"
+                 >
+                   <X size={10} />
+                 </button>
+               </div>
+             ))}
+          </div>
+        )}
+      </div>
+
+      <button 
+        onClick={() => onSave(formData, log?.id)}
+        className="w-full flex items-center justify-center space-x-2 bg-blue-600 hover:bg-blue-700 text-white px-6 py-3 rounded-2xl font-bold shadow-lg shadow-blue-500/20"
+      >
+        <Save size={20} />
+        <span>Save Log Entry</span>
+      </button>
+    </motion.div>
+  );
+}

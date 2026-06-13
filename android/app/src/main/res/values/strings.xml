@@ -1,0 +1,7 @@
+<?xml version='1.0' encoding='utf-8'?>
+<resources>
+    <string name="app_name">SiteLog</string>
+    <string name="title_activity_main">SiteLog</string>
+    <string name="package_name">com.sitelog.app</string>
+    <string name="custom_url_scheme">com.sitelog.app</string>
+</resources>

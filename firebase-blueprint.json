@@ -1,0 +1,151 @@
+{
+  "entities": {
+    "Project": {
+      "title": "Project",
+      "description": "A construction site project entry",
+      "type": "object",
+      "properties": {
+        "id": { "type": "string" },
+        "userId": { "type": "string" },
+        "villaNum": { "type": "string" },
+        "plotNum": { "type": "string" },
+        "title": { "type": "string" },
+        "description": { "type": "string" },
+        "categoryId": { "type": "string" },
+        "progress": { "type": "number" },
+        "status": { "type": "string", "enum": ["Not Started", "In Progress", "Completed"] },
+        "startDate": { "type": "string", "format": "date-time" },
+        "lastUpdated": { "type": "string", "format": "date-time" },
+        "completionNotes": { "type": "string" },
+        "completedBy": { "type": "string" },
+        "inspectorName": { "type": "string" },
+        "inspectionStatus": { "type": "string", "enum": ["Pending", "Passed", "Failed"] },
+        "invoiceStatus": { "type": "string", "enum": ["Pending", "Invoiced", "Paid"] },
+        "invoiceNumber": { "type": "string" },
+        "invoiceAmount": { "type": "number" },
+        "paymentDate": { "type": "string", "format": "date-time" }
+      },
+      "required": ["userId", "villaNum", "plotNum", "title", "categoryId", "progress", "status"]
+    },
+    "DailyLog": {
+      "title": "Daily Log",
+      "description": "A daily progress report for a project",
+      "type": "object",
+      "properties": {
+        "id": { "type": "string" },
+        "projectId": { "type": "string" },
+        "userId": { "type": "string" },
+        "date": { "type": "string", "format": "date-time" },
+        "description": { "type": "string" },
+        "workers": { "type": "number" },
+        "hours": { "type": "number" },
+        "materials": { "type": "string" },
+        "photoUrls": { "type": "array", "items": { "type": "string" } },
+        "notes": { "type": "string" }
+      },
+      "required": ["projectId", "userId", "date", "description"]
+    },
+    "Category": {
+      "title": "Category",
+      "description": "Work category (e.g., Plumbing, Electrical)",
+      "type": "object",
+      "properties": {
+        "id": { "type": "string" },
+        "userId": { "type": "string" },
+        "name": { "type": "string" },
+        "order": { "type": "number" }
+      },
+      "required": ["userId", "name", "order"]
+    },
+    "User": {
+      "title": "User",
+      "description": "User profile with custom settings and saved photo",
+      "type": "object",
+      "properties": {
+        "uid": { "type": "string" },
+        "displayName": { "type": "string" },
+        "photoURL": { "type": "string" },
+        "updatedAt": { "type": "string", "format": "date-time" }
+      },
+      "required": ["uid"]
+    },
+    "Bug": {
+      "title": "Bug",
+      "description": "An automated error report logged and reported to admin",
+      "type": "object",
+      "properties": {
+        "id": { "type": "string" },
+        "error": { "type": "string" },
+        "operationType": { "type": "string" },
+        "path": { "type": "string" },
+        "userId": { "type": "string" },
+        "userEmail": { "type": "string" },
+        "emailVerified": { "type": "boolean" },
+        "reportedAt": { "type": "string", "format": "date-time" },
+        "to": { "type": "string" },
+        "status": { "type": "string" }
+      },
+      "required": ["id", "error", "reportedAt"]
+    },
+    "VerificationRequest": {
+      "title": "Verification Request",
+      "description": "Temporary 6-digit code for new user registration or password reset",
+      "type": "object",
+      "properties": {
+        "email": { "type": "string" },
+        "code": { "type": "string" },
+        "displayName": { "type": "string" },
+        "password": { "type": "string" },
+        "createdAt": { "type": "string", "format": "date-time" },
+        "type": { "type": "string", "enum": ["signup", "forgot_password"] }
+      },
+      "required": ["email", "code", "createdAt"]
+    },
+    "ReportTemplate": {
+      "title": "Report Template",
+      "description": "Saved PDF report settings",
+      "type": "object",
+      "properties": {
+        "id": { "type": "string" },
+        "userId": { "type": "string" },
+        "name": { "type": "string" },
+        "headerTitle": { "type": "string" },
+        "headerSubtitle": { "type": "string" },
+        "footerText": { "type": "string" },
+        "theme": { "type": "string" },
+        "visibleColumns": { "type": "array", "items": { "type": "string" } }
+      },
+      "required": ["userId", "name"]
+    }
+  },
+  "firestore": {
+    "/users/{userId}": {
+      "schema": "User",
+      "description": "User profiles"
+    },
+    "/projects/{projectId}": {
+      "schema": "Project",
+      "description": "User projects"
+    },
+    "/projects/{projectId}/logs/{logId}": {
+      "schema": "DailyLog",
+      "description": "Daily logs for a project"
+    },
+    "/categories/{categoryId}": {
+      "schema": "Category",
+      "description": "Work categories"
+    },
+    "/templates/{templateId}": {
+      "schema": "ReportTemplate",
+      "description": "Saved report templates"
+    },
+    "/bugs/{bugId}": {
+      "schema": "Bug",
+      "description": "Automated system error and permission reports to the admin"
+    },
+    "/verification_requests/{email}": {
+      "schema": "VerificationRequest",
+      "description": "Pending verification details and codes before activation"
+    }
+  }
+}

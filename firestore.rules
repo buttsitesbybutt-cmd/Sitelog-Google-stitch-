@@ -1,0 +1,149 @@
+rules_version = '2';
+service cloud.firestore {
+  match /databases/{database}/documents {
+    // Default Deny
+    match /{document=**} {
+      allow read, write: if false;
+    }
+
+    // --- Helpers ---
+    function isSignedIn() {
+      return request.auth != null;
+    }
+
+    function isOwner(userId) {
+      return isSignedIn() && request.auth.uid == userId;
+    }
+
+    function isValidId(id) {
+      return id is string && id.size() <= 128 && id.matches('^[a-zA-Z0-9_\\-]+$');
+    }
+
+    function incoming() {
+      return request.resource.data;
+    }
+
+    function existing() {
+      return resource.data;
+    }
+
+    // --- Project Validation ---
+    function isValidProject(data) {
+      return data.userId == request.auth.uid
+        && data.villaNum is string && data.villaNum.size() <= 100
+        && data.plotNum is string && data.plotNum.size() <= 100
+        && data.title is string && data.title.size() <= 200
+        && data.categoryId is string
+        && data.progress is number && data.progress >= 0 && data.progress <= 100
+        && data.status in ["Not Started", "In Progress", "Completed"];
+    }
+
+    // --- DailyLog Validation ---
+    function isValidDailyLog(data) {
+      return data.userId == request.auth.uid
+        && data.projectId is string
+        && data.description is string && data.description.size() <= 2000
+        && (data.date is timestamp || data.date is string)
+        && (data.workers == null || (data.workers is number && data.workers >= 0))
+        && (data.hours == null || (data.hours is number && data.hours >= 0));
+    }
+
+    // --- Category Validation ---
+    function isValidCategory(data) {
+      return data.userId == request.auth.uid
+        && data.name is string && data.name.size() <= 100
+        && data.order is number;
+    }
+
+    // --- Template Validation ---
+    function isValidTemplate(data) {
+      return data.userId == request.auth.uid
+        && data.name is string && data.name.size() <= 100;
+    }
+
+    // --- User Profile Validation ---
+    function isValidUserProfile(data) {
+      return data.uid == request.auth.uid;
+    }
+
+    // --- Match Rules ---
+
+    match /users/{userId} {
+      allow get: if isOwner(userId);
+      allow create, update: if isOwner(userId) && isValidUserProfile(incoming());
+      allow delete: if false;
+    }
+
+    match /bugs/{bugId} {
+      allow create: if isSignedIn();
+      allow read, update, delete: if false;
+    }
+
+    match /verification_requests/{email} {
+      allow read, create, update: if true;
+      allow delete: if false;
+    }
+
+    match /projects/{projectId} {
+      allow get: if isOwner(existing().userId);
+      allow list: if isSignedIn() && resource.data.userId == request.auth.uid;
+      
+      allow create: if isSignedIn() 
+        && isValidId(projectId)
+        && isValidProject(incoming())
+        && incoming().keys().hasAll(['userId', 'villaNum', 'plotNum', 'title', 'categoryId', 'progress', 'status']);
+        
+      allow update: if isOwner(existing().userId)
+        && isValidProject(incoming())
+        && incoming().userId == existing().userId; // Immutable owner
+        
+      allow delete: if isOwner(existing().userId);
+
+      match /logs/{logId} {
+        allow get: if isOwner(get(/databases/$(database)/documents/projects/$(projectId)).data.userId);
+        allow list: if isOwner(get(/databases/$(database)/documents/projects/$(projectId)).data.userId);
+        
+        allow create: if isOwner(get(/databases/$(database)/documents/projects/$(projectId)).data.userId)
+          && isValidId(logId)
+          && isValidDailyLog(incoming())
+          && incoming().projectId == projectId;
+          
+        allow update: if isOwner(get(/databases/$(database)/documents/projects/$(projectId)).data.userId)
+          && isValidDailyLog(incoming())
+          && incoming().userId == existing().userId;
+          
+        allow delete: if isOwner(get(/databases/$(database)/documents/projects/$(projectId)).data.userId);
+      }
+    }
+
+    match /categories/{categoryId} {
+      allow get: if isOwner(existing().userId);
+      allow list: if isSignedIn() && resource.data.userId == request.auth.uid;
+      
+      allow create: if isSignedIn()
+        && isValidId(categoryId)
+        && isValidCategory(incoming());
+        
+      allow update: if isOwner(existing().userId)
+        && isValidCategory(incoming())
+        && incoming().userId == existing().userId;
+        
+      allow delete: if isOwner(existing().userId);
+    }
+
+    match /templates/{templateId} {
+      allow get: if isOwner(existing().userId);
+      allow list: if isSignedIn() && resource.data.userId == request.auth.uid;
+      
+      allow create: if isSignedIn()
+        && isValidId(templateId)
+        && isValidTemplate(incoming());
+        
+      allow update: if isOwner(existing().userId)
+        && isValidTemplate(incoming())
+        && incoming().userId == existing().userId;
+        
+      allow delete: if isOwner(existing().userId);
+    }
+  }
+}
