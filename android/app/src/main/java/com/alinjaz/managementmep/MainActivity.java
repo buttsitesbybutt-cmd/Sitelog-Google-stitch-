@@ -1,4 +1,4 @@
-package com.sitelog.app;
+package com.alinjaz.managementmep;
 
 import com.getcapacitor.BridgeActivity;
 

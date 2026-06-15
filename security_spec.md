@@ -1,4 +1,4 @@
-# Security Specification - SiteLog
+# Security Specification - Al-injaz Management MEP
 
 ## Data Invariants
 1. A Project must belong to the user who created it.
