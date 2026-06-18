@@ -24,7 +24,7 @@ A modern, cloud-powered, offline-capable construction site management applicatio
 
 **Live Website**
 
-https://eleforman.lovable.app
+
 
 ---
 
