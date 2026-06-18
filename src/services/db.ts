@@ -149,15 +149,43 @@ export const saveDailyLog = async (projectId: string, log: Omit<DailyLog, 'id' |
       projectId,
       userId: auth.currentUser.uid,
     };
+    let logId = id;
     if (id) {
       await updateDoc(doc(db, 'projects', projectId, 'logs', id), data);
-      return id;
     } else {
       const docRef = await addDoc(collection(db, 'projects', projectId, 'logs'), data);
-      return docRef.id;
+      logId = docRef.id;
     }
+
+    // Sync project progress if specified
+    if (log.projectProgress !== undefined && log.projectProgress !== null) {
+      const projectRef = doc(db, 'projects', projectId);
+      let projectStatus = "In Progress";
+      if (log.projectProgress === 100) {
+        projectStatus = "Completed";
+      } else if (log.projectProgress === 0) {
+        projectStatus = "Not Started";
+      }
+      await updateDoc(projectRef, {
+        progress: log.projectProgress,
+        status: projectStatus,
+        lastUpdated: new Date().toISOString()
+      });
+    }
+
+    return logId;
   } catch (error) {
     handleFirestoreError(error, OperationType.WRITE, path);
+  }
+};
+
+export const deleteDailyLog = async (projectId: string, logId: string) => {
+  if (!auth.currentUser) throw new Error("Unauthorized");
+  const path = `projects/${projectId}/logs/${logId}`;
+  try {
+    await deleteDoc(doc(db, 'projects', projectId, 'logs', logId));
+  } catch (error) {
+    handleFirestoreError(error, OperationType.DELETE, path);
   }
 };
 

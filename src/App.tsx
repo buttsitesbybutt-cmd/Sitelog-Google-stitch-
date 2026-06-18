@@ -133,6 +133,7 @@ export default function App() {
     ]);
     setProjects(projData);
     setCategories(catData);
+    return { projData, catData };
   };
 
   const handleProjectClick = (project: Project) => {
@@ -142,10 +143,10 @@ export default function App() {
     handleTabChange('project-detail');
   };
 
-  const handleUpdate = () => {
-    fetchData();
+  const handleUpdate = async () => {
+    const { projData } = await fetchData();
     if (selectedProject) {
-      const updated = projects.find(p => p.id === selectedProject.id);
+      const updated = projData.find(p => p.id === selectedProject.id);
       if (updated) setSelectedProject(updated);
     }
   };

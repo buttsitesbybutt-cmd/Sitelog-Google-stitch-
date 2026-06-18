@@ -73,6 +73,7 @@ export interface DailyLog {
   materials?: string;
   photoUrls?: string[];
   notes?: string;
+  projectProgress?: number;
 }
 
 export interface Category {

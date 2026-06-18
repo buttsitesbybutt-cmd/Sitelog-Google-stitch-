@@ -1,19 +1,23 @@
 import React, { useState, useEffect } from "react";
 import { Project, DailyLog } from "@/src/lib/firebase";
-import { getDailyLogs, saveDailyLog } from "@/src/services/db";
-import { Plus, Save, Calendar, Clock, HardHat, Package, Edit2, Trash2, Camera, X } from "lucide-react";
+import { getDailyLogs, saveDailyLog, deleteDailyLog } from "@/src/services/db";
+import { Plus, Save, Calendar, Clock, HardHat, Package, Edit2, Trash2, Camera, X, TrendingUp } from "lucide-react";
 import { motion, AnimatePresence } from "motion/react";
 import { formatDate } from "@/src/lib/utils";
 
 interface DailyLogsProps {
   project: Project;
+  onUpdate?: () => void;
 }
 
-export default function DailyLogs({ project }: DailyLogsProps) {
+export default function DailyLogs({ project, onUpdate }: DailyLogsProps) {
   const [logs, setLogs] = useState<DailyLog[]>([]);
   const [isAdding, setIsAdding] = useState(false);
   const [editingLog, setEditingLog] = useState<DailyLog | null>(null);
   const [isLoading, setIsLoading] = useState(true);
+  const [deletingLogId, setDeletingLogId] = useState<string | null>(null);
+  const [isDeleting, setIsDeleting] = useState(false);
+  const [errorMsg, setErrorMsg] = useState<string | null>(null);
 
   useEffect(() => {
     loadLogs();
@@ -31,6 +35,23 @@ export default function DailyLogs({ project }: DailyLogsProps) {
     setIsAdding(false);
     setEditingLog(null);
     loadLogs();
+    if (onUpdate) onUpdate();
+  };
+
+  const confirmDeleteLog = async () => {
+    if (!deletingLogId) return;
+    setIsDeleting(true);
+    setErrorMsg(null);
+    try {
+      await deleteDailyLog(project.id, deletingLogId);
+      setDeletingLogId(null);
+      loadLogs();
+      if (onUpdate) onUpdate();
+    } catch (err) {
+      setErrorMsg("Failed to delete the log entry. Please try again.");
+    } finally {
+      setIsDeleting(false);
+    }
   };
 
   return (
@@ -50,6 +71,7 @@ export default function DailyLogs({ project }: DailyLogsProps) {
         {(isAdding || editingLog) && (
           <LogForm 
             log={editingLog || undefined} 
+            currentProjectProgress={project.progress}
             onSave={handleSave} 
             onCancel={() => { setIsAdding(false); setEditingLog(null); }} 
           />
@@ -64,9 +86,9 @@ export default function DailyLogs({ project }: DailyLogsProps) {
         ) : logs.length > 0 ? (
           logs.map((log) => (
             <motion.div 
-              layout
-              key={log.id}
-              className="bg-white border border-gray-100 rounded-2xl p-5 shadow-sm space-y-4"
+               layout
+               key={log.id}
+               className="bg-white border border-gray-100 rounded-2xl p-5 shadow-sm space-y-4"
             >
               <div className="flex items-start justify-between">
                 <div>
@@ -76,15 +98,25 @@ export default function DailyLogs({ project }: DailyLogsProps) {
                   </div>
                   <h4 className="font-bold text-gray-900">{log.description}</h4>
                 </div>
-                <button 
-                  onClick={() => setEditingLog(log)}
-                  className="p-2 text-gray-400 hover:text-blue-600 transition-colors"
-                >
-                  <Edit2 size={18} />
-                </button>
+                <div className="flex items-center space-x-1">
+                  <button 
+                    onClick={() => setEditingLog(log)}
+                    className="p-2 text-gray-400 hover:text-blue-600 transition-colors"
+                    title="Edit Log"
+                  >
+                    <Edit2 size={18} />
+                  </button>
+                  <button 
+                    onClick={() => setDeletingLogId(log.id)}
+                    className="p-2 text-gray-400 hover:text-red-500 transition-colors"
+                    title="Delete Log"
+                  >
+                    <Trash2 size={18} />
+                  </button>
+                </div>
               </div>
 
-              <div className="grid grid-cols-2 md:grid-cols-4 gap-4 py-3 border-y border-gray-50 text-xs">
+              <div className="grid grid-cols-2 lg:grid-cols-4 gap-4 py-3 border-y border-gray-50 text-xs">
                 <div className="flex items-center space-x-2">
                   <div className="w-8 h-8 rounded-lg bg-orange-50 text-orange-600 flex items-center justify-center">
                     <HardHat size={16} />
@@ -103,6 +135,22 @@ export default function DailyLogs({ project }: DailyLogsProps) {
                     <p className="font-bold text-gray-900">{log.hours || 0}</p>
                   </div>
                 </div>
+                {log.projectProgress !== undefined && log.projectProgress !== null && (
+                  <div className="col-span-2 flex items-center space-x-2">
+                     <div className="w-8 h-8 rounded-lg bg-green-50 text-green-600 flex items-center justify-center">
+                      <TrendingUp size={16} />
+                    </div>
+                    <div className="flex-1">
+                      <p className="text-gray-400 font-bold uppercase tracking-widest text-[9px]">Project Progress</p>
+                      <div className="flex items-center space-x-2">
+                        <span className="font-bold text-gray-900">{log.projectProgress}%</span>
+                        <div className="flex-1 max-w-[120px] h-1.5 bg-gray-100 rounded-full overflow-hidden">
+                          <div className="h-full bg-green-500 rounded-full animate-pulse" style={{ width: `${log.projectProgress}%` }} />
+                        </div>
+                      </div>
+                    </div>
+                  </div>
+                )}
               </div>
 
               {log.materials && (
@@ -133,11 +181,61 @@ export default function DailyLogs({ project }: DailyLogsProps) {
           </div>
         )}
       </div>
+
+      {deletingLogId && (
+        <div className="fixed inset-0 bg-slate-950/65 backdrop-blur-sm flex items-center justify-center p-4 z-50">
+          <motion.div 
+            initial={{ opacity: 0, scale: 0.95 }}
+            animate={{ opacity: 1, scale: 1 }}
+            className="bg-white rounded-3xl p-6 max-w-sm w-full shadow-2xl border border-gray-100 text-center space-y-4"
+          >
+            <div className="w-16 h-16 bg-red-50 rounded-full flex items-center justify-center mx-auto text-red-500">
+              <Trash2 size={32} />
+            </div>
+            
+            <div className="space-y-2">
+              <h4 className="text-xl font-black text-gray-900">Delete Work Log?</h4>
+              <p className="text-sm text-gray-500 font-medium leading-relaxed">
+                Are you sure you want to delete this daily work log entry? This action is permanent and cannot be undone.
+              </p>
+            </div>
+
+            {errorMsg && (
+              <p className="text-xs text-red-500 font-bold bg-red-50 py-2 px-3 rounded-lg border border-red-100">
+                {errorMsg}
+              </p>
+            )}
+
+            <div className="flex space-x-3 pt-2">
+              <button 
+                type="button"
+                onClick={() => { setDeletingLogId(null); setErrorMsg(null); }}
+                className="flex-1 bg-gray-50 hover:bg-gray-100 text-gray-700 font-bold py-3 px-4 rounded-xl text-sm transition-colors border border-gray-200"
+                disabled={isDeleting}
+              >
+                No, Keep It
+              </button>
+              <button 
+                type="button"
+                onClick={confirmDeleteLog}
+                className="flex-1 bg-red-600 hover:bg-red-700 text-white font-bold py-3 px-4 rounded-xl text-sm shadow-lg shadow-red-500/20 transition-colors flex items-center justify-center space-x-2"
+                disabled={isDeleting}
+              >
+                {isDeleting ? (
+                  <div className="w-5 h-5 border-2 border-white border-t-transparent rounded-full animate-spin" />
+                ) : (
+                  <span>Yes, Delete</span>
+                )}
+              </button>
+            </div>
+          </motion.div>
+        </div>
+      )}
     </div>
   );
 }
 
-function LogForm({ log, onSave, onCancel }: { log?: DailyLog; onSave: (data: any, id?: string) => void; onCancel: () => void }) {
+function LogForm({ log, currentProjectProgress, onSave, onCancel }: { log?: DailyLog; currentProjectProgress: number; onSave: (data: any, id?: string) => void; onCancel: () => void }) {
   const [formData, setFormData] = useState({
     date: log?.date || new Date().toISOString().split('T')[0],
     description: log?.description || "",
@@ -146,6 +244,7 @@ function LogForm({ log, onSave, onCancel }: { log?: DailyLog; onSave: (data: any
     materials: log?.materials || "",
     notes: log?.notes || "",
     photoUrls: log?.photoUrls || [],
+    projectProgress: log?.projectProgress !== undefined ? log.projectProgress : currentProjectProgress,
   });
 
   const [photoUrl, setPhotoUrl] = useState("");
@@ -253,18 +352,45 @@ function LogForm({ log, onSave, onCancel }: { log?: DailyLog; onSave: (data: any
         {formData.photoUrls.length > 0 && (
           <div className="flex flex-wrap gap-2">
              {formData.photoUrls.map((url, i) => (
-               <div key={i} className="relative group">
-                 <img src={url} className="w-12 h-12 rounded-lg object-cover" alt="Log" />
-                 <button 
-                  onClick={() => setFormData(p => ({ ...p, photoUrls: p.photoUrls.filter((_, idx) => idx !== i) }))}
-                  className="absolute -top-1 -right-1 bg-red-500 text-white rounded-full p-0.5 opacity-0 group-hover:opacity-100 transition-opacity"
-                 >
-                   <X size={10} />
-                 </button>
-               </div>
+                <div key={i} className="relative group">
+                  <img src={url} className="w-12 h-12 rounded-lg object-cover" alt="Log" />
+                  <button 
+                   onClick={() => setFormData(p => ({ ...p, photoUrls: p.photoUrls.filter((_, idx) => idx !== i) }))}
+                   className="absolute -top-1 -right-1 bg-red-500 text-white rounded-full p-0.5 opacity-0 group-hover:opacity-100 transition-opacity"
+                  >
+                    <X size={10} />
+                  </button>
+                </div>
              ))}
           </div>
         )}
+      </div>
+
+      {/* Progress Sync Control */}
+      <div className="space-y-3 bg-blue-50/50 p-4 rounded-xl border border-blue-100">
+        <label className="text-xs font-black uppercase text-blue-800 flex items-center justify-between">
+          <span>Project Progress after this log</span>
+          <span className="text-sm font-black bg-blue-100 px-2.5 py-0.5 rounded-full">{formData.projectProgress}%</span>
+        </label>
+        
+        <div className="h-2.5 bg-blue-100 rounded-full overflow-hidden">
+          <motion.div 
+            initial={{ width: 0 }}
+            animate={{ width: `${formData.projectProgress}%` }}
+            className="h-full bg-blue-600 rounded-full"
+          />
+        </div>
+
+        <input 
+          type="range" 
+          className="w-full h-8 cursor-pointer accent-blue-600" 
+          min="0" max="100" step="5"
+          value={formData.projectProgress}
+          onChange={e => setFormData(p => ({ ...p, projectProgress: parseInt(e.target.value) }))}
+        />
+        <p className="text-[10px] text-blue-600/70 font-bold italic">
+          Adjust the slider to update the overall project completion percentage automatically.
+        </p>
       </div>
 
       <button 

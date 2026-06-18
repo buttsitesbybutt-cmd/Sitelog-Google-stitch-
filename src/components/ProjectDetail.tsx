@@ -136,7 +136,7 @@ export default function ProjectDetail({ project, category, onEdit, onBack, onUpd
             initial={{ opacity: 0, y: 10 }}
             animate={{ opacity: 1, y: 0 }}
           >
-            <DailyLogs project={project} />
+            <DailyLogs project={project} onUpdate={onUpdate} />
           </motion.div>
         )}
 
