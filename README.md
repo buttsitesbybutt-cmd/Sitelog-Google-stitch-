@@ -20,9 +20,21 @@ A modern, cloud-powered, offline-capable construction site management applicatio
 
 ---
 
-# 📱 Live Application
+## 📱 Live Application
 
-**Live Website**
+### 🌐 Live Website
+
+<p align="center">
+  <a href="https://ais-pre-lamku6xgkhvhykjc2e24lp-427411293344.europe-west2.run.app/" target="_blank">
+    <img src="https://cdn-icons-png.flaticon.com/512/1006/1006771.png" width="90" alt="Website Icon"/>
+    <br><br>
+    <strong>👉 Click here to view on the web page</strong>
+  </a>
+</p>
+
+**Direct Link**
+
+https://ais-pre-lamku6xgkhvhykjc2e24lp-427411293344.europe-west2.run.app/
 
 
 
