@@ -3,7 +3,7 @@ import { Project, DailyLog } from "@/src/lib/firebase";
 import { getDailyLogs, saveDailyLog, deleteDailyLog } from "@/src/services/db";
 import { Plus, Save, Calendar, Clock, HardHat, Package, Edit2, Trash2, Camera, X, TrendingUp } from "lucide-react";
 import { motion, AnimatePresence } from "motion/react";
-import { formatDate } from "@/src/lib/utils";
+import { formatDate, cn } from "@/src/lib/utils";
 
 interface DailyLogsProps {
   project: Project;
@@ -19,6 +19,11 @@ export default function DailyLogs({ project, onUpdate }: DailyLogsProps) {
   const [isDeleting, setIsDeleting] = useState(false);
   const [errorMsg, setErrorMsg] = useState<string | null>(null);
 
+  // Prevention and duplicate states
+  const [duplicateLog, setDuplicateLog] = useState<DailyLog | null>(null);
+  const [highlightedLogId, setHighlightedLogId] = useState<string | null>(null);
+  const [isSaving, setIsSaving] = useState(false);
+
   useEffect(() => {
     loadLogs();
   }, [project.id]);
@@ -30,12 +35,49 @@ export default function DailyLogs({ project, onUpdate }: DailyLogsProps) {
     setIsLoading(false);
   };
 
+  const checkDuplicate = (logData: Omit<DailyLog, 'id' | 'userId' | 'projectId'>, editingId?: string) => {
+    return logs.find(log => {
+      if (editingId && log.id === editingId) return false;
+      
+      const sameDate = log.date === logData.date;
+      const sameDesc = (log.description || "").trim().toLowerCase() === (logData.description || "").trim().toLowerCase();
+      const sameWorkers = (log.workers || 0) === (logData.workers || 0);
+      const sameHours = (log.hours || 0) === (logData.hours || 0);
+      const sameMaterials = (log.materials || "").trim().toLowerCase() === (logData.materials || "").trim().toLowerCase();
+      const sameNotes = (log.notes || "").trim().toLowerCase() === (logData.notes || "").trim().toLowerCase();
+      const sameProgress = (log.projectProgress ?? null) === (logData.projectProgress ?? null);
+      
+      const logPhotos = log.photoUrls || [];
+      const newPhotos = logData.photoUrls || [];
+      const samePhotos = logPhotos.length === newPhotos.length && 
+        logPhotos.every((url, index) => url === newPhotos[index]);
+
+      return sameDate && sameDesc && sameWorkers && sameHours && sameMaterials && sameNotes && sameProgress && samePhotos;
+    });
+  };
+
   const handleSave = async (logData: Omit<DailyLog, 'id' | 'userId' | 'projectId'>, id?: string) => {
-    await saveDailyLog(project.id, logData, id);
-    setIsAdding(false);
-    setEditingLog(null);
-    loadLogs();
-    if (onUpdate) onUpdate();
+    // 1. Check for duplicates
+    const duplicate = checkDuplicate(logData, id);
+    if (duplicate) {
+      setDuplicateLog(duplicate);
+      return;
+    }
+
+    // 2. Prevent consecutive fast clicks
+    setIsSaving(true);
+    setErrorMsg(null);
+    try {
+      await saveDailyLog(project.id, logData, id);
+      setIsAdding(false);
+      setEditingLog(null);
+      await loadLogs();
+      if (onUpdate) onUpdate();
+    } catch (err) {
+      setErrorMsg("Failed to save the log entry. Please try again.");
+    } finally {
+      setIsSaving(false);
+    }
   };
 
   const confirmDeleteLog = async () => {
@@ -72,6 +114,7 @@ export default function DailyLogs({ project, onUpdate }: DailyLogsProps) {
           <LogForm 
             log={editingLog || undefined} 
             currentProjectProgress={project.progress}
+            isSaving={isSaving}
             onSave={handleSave} 
             onCancel={() => { setIsAdding(false); setEditingLog(null); }} 
           />
@@ -84,20 +127,28 @@ export default function DailyLogs({ project, onUpdate }: DailyLogsProps) {
             <div className="w-8 h-8 border-4 border-blue-600 border-t-transparent rounded-full animate-spin"></div>
           </div>
         ) : logs.length > 0 ? (
-          logs.map((log) => (
-            <motion.div 
-               layout
-               key={log.id}
-               className="bg-white border border-gray-100 rounded-2xl p-5 shadow-sm space-y-4"
-            >
-              <div className="flex items-start justify-between">
-                <div>
-                  <div className="flex items-center space-x-2 text-blue-600 mb-1">
-                    <Calendar size={16} />
-                    <span className="font-bold text-sm">{formatDate(log.date)}</span>
+          logs.map((log) => {
+            const isHighlighted = highlightedLogId === log.id;
+            return (
+              <motion.div 
+                 layout
+                 key={log.id}
+                 id={`log-${log.id}`}
+                 className={cn(
+                   "bg-white border rounded-2xl p-5 shadow-sm space-y-4 transition-all duration-500",
+                   isHighlighted 
+                     ? "border-blue-500 ring-4 ring-blue-100 scale-[1.01] shadow-md bg-blue-50/10" 
+                     : "border-gray-100"
+                 )}
+              >
+                <div className="flex items-start justify-between">
+                  <div>
+                    <div className="flex items-center space-x-2 text-blue-600 mb-1">
+                      <Calendar size={16} />
+                      <span className="font-bold text-sm">{formatDate(log.date)}</span>
+                    </div>
+                    <h4 className="font-bold text-gray-900">{log.description}</h4>
                   </div>
-                  <h4 className="font-bold text-gray-900">{log.description}</h4>
-                </div>
                 <div className="flex items-center space-x-1">
                   <button 
                     onClick={() => setEditingLog(log)}
@@ -174,7 +225,8 @@ export default function DailyLogs({ project, onUpdate }: DailyLogsProps) {
                 </div>
               )}
             </motion.div>
-          ))
+          );
+        })
         ) : (
           <div className="text-center p-12 bg-white border border-dashed border-gray-200 rounded-3xl text-gray-400">
             <p className="text-sm">No daily logs yet. Add your first progress update!</p>
@@ -231,11 +283,100 @@ export default function DailyLogs({ project, onUpdate }: DailyLogsProps) {
           </motion.div>
         </div>
       )}
+
+      {/* Duplicate entry dialog with a direct button to scroll to and see the existing entry */}
+      {duplicateLog && (
+        <div className="fixed inset-0 bg-slate-950/65 backdrop-blur-sm flex items-center justify-center p-4 z-[60]">
+          <motion.div 
+            initial={{ opacity: 0, scale: 0.95 }}
+            animate={{ opacity: 1, scale: 1 }}
+            className="bg-white rounded-3xl p-6 max-w-md w-full shadow-2xl border border-gray-100 space-y-5"
+          >
+            <div className="w-16 h-16 bg-blue-50 rounded-full flex items-center justify-center mx-auto text-blue-600">
+              <Calendar size={32} />
+            </div>
+            
+            <div className="text-center space-y-2">
+              <h4 className="text-xl font-black text-gray-900">Duplicate Entry Found</h4>
+              <p className="text-sm text-gray-500 font-medium leading-relaxed">
+                An identical daily progress log already exists for this project on <span className="font-bold text-gray-900">{formatDate(duplicateLog.date)}</span>.
+              </p>
+            </div>
+
+            {/* Existing log summary preview */}
+            <div className="bg-slate-50 border border-slate-100 rounded-2xl p-4 text-left space-y-3">
+              <div>
+                <p className="text-gray-400 font-bold uppercase tracking-widest text-[9px]">Existing Entry Description</p>
+                <p className="font-bold text-sm text-gray-900">{duplicateLog.description}</p>
+              </div>
+              <div className="grid grid-cols-3 gap-2 py-2 border-y border-slate-100 text-xs">
+                <div>
+                  <p className="text-gray-400 font-bold text-[8px] uppercase">Workers</p>
+                  <p className="font-bold text-gray-800">{duplicateLog.workers || 0}</p>
+                </div>
+                <div>
+                  <p className="text-gray-400 font-bold text-[8px] uppercase">Hours</p>
+                  <p className="font-bold text-gray-800">{duplicateLog.hours || 0}</p>
+                </div>
+                <div>
+                  <p className="text-gray-400 font-bold text-[8px] uppercase">Progress</p>
+                  <p className="font-bold text-gray-800">{duplicateLog.projectProgress}%</p>
+                </div>
+              </div>
+              {duplicateLog.notes && (
+                <div>
+                  <p className="text-gray-400 font-bold uppercase tracking-widest text-[9px] mb-1">Notes</p>
+                  <p className="text-xs text-gray-600 italic font-medium bg-white p-2.5 rounded-xl border border-slate-100/50">
+                    &ldquo;{duplicateLog.notes}&rdquo;
+                  </p>
+                </div>
+              )}
+            </div>
+
+            <p className="text-xs text-slate-400 text-center font-medium">
+              We did not create this duplicate log because everything matches the existing entry perfectly.
+            </p>
+
+            <div className="flex flex-col space-y-2 pt-2">
+              <button 
+                type="button"
+                onClick={() => {
+                  const logId = duplicateLog.id;
+                  setDuplicateLog(null);
+                  setIsAdding(false);
+                  setEditingLog(null);
+                  setHighlightedLogId(logId);
+                  setTimeout(() => {
+                    const element = document.getElementById(`log-${logId}`);
+                    if (element) {
+                      element.scrollIntoView({ behavior: "smooth", block: "center" });
+                    }
+                    setTimeout(() => {
+                      setHighlightedLogId(null);
+                    }, 4000);
+                  }, 150);
+                }}
+                className="w-full bg-blue-600 hover:bg-blue-700 text-white font-bold py-3.5 px-4 rounded-xl text-sm shadow-lg shadow-blue-500/20 transition-all flex items-center justify-center space-x-2"
+              >
+                <span>Show Me Existing Entry</span>
+              </button>
+              
+              <button 
+                type="button"
+                onClick={() => setDuplicateLog(null)}
+                className="w-full bg-gray-50 hover:bg-gray-100 text-gray-700 font-bold py-3 px-4 rounded-xl text-sm transition-colors border border-gray-200"
+              >
+                Go Back & Edit
+              </button>
+            </div>
+          </motion.div>
+        </div>
+      )}
     </div>
   );
 }
 
-function LogForm({ log, currentProjectProgress, onSave, onCancel }: { log?: DailyLog; currentProjectProgress: number; onSave: (data: any, id?: string) => void; onCancel: () => void }) {
+function LogForm({ log, currentProjectProgress, isSaving, onSave, onCancel }: { log?: DailyLog; currentProjectProgress: number; isSaving: boolean; onSave: (data: any, id?: string) => void; onCancel: () => void }) {
   const [formData, setFormData] = useState({
     date: log?.date || new Date().toISOString().split('T')[0],
     description: log?.description || "",
@@ -394,11 +535,19 @@ function LogForm({ log, currentProjectProgress, onSave, onCancel }: { log?: Dail
       </div>
 
       <button 
+        type="button"
+        disabled={isSaving}
         onClick={() => onSave(formData, log?.id)}
-        className="w-full flex items-center justify-center space-x-2 bg-blue-600 hover:bg-blue-700 text-white px-6 py-3 rounded-2xl font-bold shadow-lg shadow-blue-500/20"
+        className="w-full flex items-center justify-center space-x-2 bg-blue-600 hover:bg-blue-700 disabled:opacity-50 disabled:hover:bg-blue-600 text-white px-6 py-3 rounded-2xl font-bold shadow-lg shadow-blue-500/20 transition-all focus:outline-none"
       >
-        <Save size={20} />
-        <span>Save Log Entry</span>
+        {isSaving ? (
+          <div className="w-5 h-5 border-2 border-white border-t-transparent rounded-full animate-spin" />
+        ) : (
+          <>
+            <Save size={20} />
+            <span>Save Log Entry</span>
+          </>
+        )}
       </button>
     </motion.div>
   );

@@ -17,12 +17,82 @@ interface ProjectDetailProps {
 export default function ProjectDetail({ project, category, onEdit, onBack, onUpdate }: ProjectDetailProps) {
   const [activeTab, setActiveTab] = useState<'overview' | 'logs' | 'workflow'>('overview');
 
-  const updateWorkflow = async (updates: Partial<Project>) => {
+  const [isEditingInspection, setIsEditingInspection] = useState(false);
+  const [isEditingInvoicing, setIsEditingInvoicing] = useState(false);
+  
+  const [isSavingInspection, setIsSavingInspection] = useState(false);
+  const [isSavingInvoicing, setIsSavingInvoicing] = useState(false);
+  
+  const [inspectionSuccess, setInspectionSuccess] = useState(false);
+  const [invoicingSuccess, setInvoicingSuccess] = useState(false);
+
+  const [inspectionError, setInspectionError] = useState<string | null>(null);
+  const [invoicingError, setInvoicingError] = useState<string | null>(null);
+
+  const [localInspectorName, setLocalInspectorName] = useState(project.inspectorName || "");
+  const [localInspectionStatus, setLocalInspectionStatus] = useState<InspectionStatus>(project.inspectionStatus || "Pending");
+  
+  const [localInvoiceNumber, setLocalInvoiceNumber] = useState(project.invoiceNumber || "");
+  const [localInvoiceAmount, setLocalInvoiceAmount] = useState<string>(project.invoiceAmount !== undefined ? String(project.invoiceAmount) : "");
+  const [localInvoiceStatus, setLocalInvoiceStatus] = useState<InvoiceStatus>(project.invoiceStatus || "Pending");
+
+  const inspectionInputRef = React.useRef<HTMLInputElement>(null);
+  const invoiceNumberInputRef = React.useRef<HTMLInputElement>(null);
+
+  React.useEffect(() => {
+    if (!isEditingInspection) {
+      setLocalInspectorName(project.inspectorName || "");
+      setLocalInspectionStatus(project.inspectionStatus || "Pending");
+    }
+  }, [project.inspectorName, project.inspectionStatus, isEditingInspection]);
+
+  React.useEffect(() => {
+    if (!isEditingInvoicing) {
+      setLocalInvoiceNumber(project.invoiceNumber || "");
+      setLocalInvoiceAmount(project.invoiceAmount !== undefined ? String(project.invoiceAmount) : "");
+      setLocalInvoiceStatus(project.invoiceStatus || "Pending");
+    }
+  }, [project.invoiceNumber, project.invoiceAmount, project.invoiceStatus, isEditingInvoicing]);
+
+  const handleSaveInspection = async () => {
+    setIsSavingInspection(true);
+    setInspectionError(null);
     try {
-      await saveProject({ ...project, ...updates }, project.id);
+      await saveProject({ 
+        ...project, 
+        inspectorName: localInspectorName,
+        inspectionStatus: localInspectionStatus
+      }, project.id);
       onUpdate();
+      setInspectionSuccess(true);
+      setIsEditingInspection(false);
+      setTimeout(() => setInspectionSuccess(false), 2000);
     } catch (err) {
-      alert("Failed to update status");
+      setInspectionError("Failed to save site inspection details.");
+    } finally {
+      setIsSavingInspection(false);
+    }
+  };
+
+  const handleSaveInvoicing = async () => {
+    setIsSavingInvoicing(true);
+    setInvoicingError(null);
+    try {
+      const amount = parseFloat(localInvoiceAmount) || 0;
+      await saveProject({ 
+        ...project, 
+        invoiceNumber: localInvoiceNumber,
+        invoiceAmount: amount,
+        invoiceStatus: localInvoiceStatus
+      }, project.id);
+      onUpdate();
+      setInvoicingSuccess(true);
+      setIsEditingInvoicing(false);
+      setTimeout(() => setInvoicingSuccess(false), 2000);
+    } catch (err) {
+      setInvoicingError("Failed to save invoice details.");
+    } finally {
+      setIsSavingInvoicing(false);
     }
   };
 
@@ -150,44 +220,144 @@ export default function ProjectDetail({ project, category, onEdit, onBack, onUpd
             <StatusSection 
               title="Site Inspection" 
               icon={<CheckCircle2 size={24} />}
-              currentStatus={project.inspectionStatus || "Pending"}
-              onStatusChange={(status) => updateWorkflow({ inspectionStatus: status as any })}
+              currentStatus={localInspectionStatus}
+              onStatusChange={(status) => setLocalInspectionStatus(status as any)}
+              disabled={!isEditingInspection}
               options={["Pending", "Passed", "Failed"]}
               colors={{ Pending: "bg-gray-100 text-gray-600", Passed: "bg-green-100 text-green-700", Failed: "bg-red-100 text-red-700" }}
             >
-               <input 
-                  type="text" 
-                  placeholder="Inspector Name"
-                  className="w-full bg-white border border-gray-100 rounded-xl px-4 py-2 text-sm"
-                  value={project.inspectorName || ""}
-                  onChange={e => updateWorkflow({ inspectorName: e.target.value })}
-               />
+               <div className="space-y-4">
+                 <input 
+                    ref={inspectionInputRef}
+                    type="text" 
+                    placeholder="Inspector Name"
+                    disabled={!isEditingInspection}
+                    className={cn(
+                      "w-full px-5 py-4 text-sm font-semibold transition-all duration-200 outline-none rounded-2xl",
+                      isEditingInspection 
+                        ? "bg-white border-2 border-black text-gray-900 shadow-sm"
+                        : "bg-slate-50/50 text-slate-500 border border-slate-100 cursor-not-allowed"
+                    )}
+                    value={localInspectorName}
+                    onChange={e => setLocalInspectorName(e.target.value)}
+                 />
+
+                 {inspectionError && (
+                   <p className="text-xs text-red-500 font-bold bg-red-50 p-2.5 rounded-xl border border-red-100">
+                     {inspectionError}
+                   </p>
+                 )}
+
+                 {inspectionSuccess && (
+                   <p className="text-xs text-green-600 font-bold bg-green-50 p-2.5 rounded-xl border border-green-100">
+                     ✓ Site inspection saved successfully!
+                   </p>
+                 )}
+
+                 <div className="flex justify-end space-x-3 pt-2">
+                   <button
+                     type="button"
+                     onClick={() => {
+                       setIsEditingInspection(true);
+                       setTimeout(() => inspectionInputRef.current?.focus(), 50);
+                     }}
+                     className="border-2 border-blue-600 text-blue-600 bg-white hover:bg-blue-50 font-bold px-6 py-2 rounded-full text-sm transition-all focus:outline-none"
+                   >
+                     Edit
+                   </button>
+                   <button
+                     type="button"
+                     disabled={isSavingInspection}
+                     onClick={handleSaveInspection}
+                     className="bg-blue-600 hover:bg-blue-700 disabled:opacity-50 text-white font-bold px-6 py-2 rounded-full text-sm shadow-sm transition-all flex items-center justify-center space-x-1 focus:outline-none"
+                   >
+                     {isSavingInspection ? (
+                       <div className="w-4 h-4 border-2 border-white border-t-transparent rounded-full animate-spin" />
+                     ) : (
+                       <span>Save</span>
+                     )}
+                   </button>
+                 </div>
+               </div>
             </StatusSection>
 
             {/* Invoice Status */}
             <StatusSection 
               title="Invoicing & Payment" 
               icon={<Receipt size={24} />}
-              currentStatus={project.invoiceStatus || "Pending"}
-              onStatusChange={(status) => updateWorkflow({ invoiceStatus: status as any })}
+              currentStatus={localInvoiceStatus}
+              onStatusChange={(status) => setLocalInvoiceStatus(status as any)}
+              disabled={!isEditingInvoicing}
               options={["Pending", "Invoiced", "Paid"]}
               colors={{ Pending: "bg-gray-100 text-gray-600", Invoiced: "bg-orange-100 text-orange-700", Paid: "bg-blue-100 text-blue-700" }}
             >
-              <div className="grid grid-cols-2 gap-4">
-                <input 
-                    type="text" 
-                    placeholder="Invoice #"
-                    className="bg-white border border-gray-100 rounded-xl px-4 py-2 text-sm"
-                    value={project.invoiceNumber || ""}
-                    onChange={e => updateWorkflow({ invoiceNumber: e.target.value })}
-                />
-                <input 
-                    type="number" 
-                    placeholder="Amount"
-                    className="bg-white border border-gray-100 rounded-xl px-4 py-2 text-sm"
-                    value={project.invoiceAmount || ""}
-                    onChange={e => updateWorkflow({ invoiceAmount: parseFloat(e.target.value) || 0 })}
-                />
+              <div className="space-y-4">
+                <div className="grid grid-cols-2 gap-4">
+                  <input 
+                      ref={invoiceNumberInputRef}
+                      type="text" 
+                      placeholder="Invoice #"
+                      disabled={!isEditingInvoicing}
+                      className={cn(
+                        "w-full px-5 py-4 text-sm font-semibold transition-all duration-200 outline-none rounded-2xl",
+                        isEditingInvoicing 
+                          ? "bg-white border-2 border-blue-500 text-gray-900 shadow-sm"
+                          : "bg-slate-50/50 text-slate-500 border border-slate-100 cursor-not-allowed"
+                      )}
+                      value={localInvoiceNumber}
+                      onChange={e => setLocalInvoiceNumber(e.target.value)}
+                  />
+                  <input 
+                      type="text" 
+                      placeholder="Amount"
+                      disabled={!isEditingInvoicing}
+                      className={cn(
+                        "w-full px-5 py-4 text-sm font-semibold transition-all duration-200 outline-none rounded-2xl",
+                        isEditingInvoicing 
+                          ? "bg-white border-2 border-blue-500 text-gray-900 shadow-sm"
+                          : "bg-slate-50/50 text-slate-500 border border-slate-100 cursor-not-allowed"
+                      )}
+                      value={localInvoiceAmount}
+                      onChange={e => setLocalInvoiceAmount(e.target.value)}
+                  />
+                </div>
+
+                {invoicingError && (
+                  <p className="text-xs text-red-500 font-bold bg-red-50 p-2.5 rounded-xl border border-red-100">
+                    {invoicingError}
+                  </p>
+                )}
+
+                {invoicingSuccess && (
+                  <p className="text-xs text-green-600 font-bold bg-green-50 p-2.5 rounded-xl border border-green-100">
+                    ✓ Invoice details saved successfully!
+                  </p>
+                )}
+
+                <div className="flex justify-end space-x-3 pt-2">
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setIsEditingInvoicing(true);
+                      setTimeout(() => invoiceNumberInputRef.current?.focus(), 50);
+                    }}
+                    className="border-2 border-blue-600 text-blue-600 bg-white hover:bg-blue-50 font-bold px-6 py-2 rounded-full text-sm transition-all focus:outline-none"
+                  >
+                    Edit
+                  </button>
+                  <button
+                    type="button"
+                    disabled={isSavingInvoicing}
+                    onClick={handleSaveInvoicing}
+                    className="bg-blue-600 hover:bg-blue-700 disabled:opacity-50 text-white font-bold px-6 py-2 rounded-full text-sm shadow-sm transition-all flex items-center justify-center space-x-1 focus:outline-none"
+                  >
+                    {isSavingInvoicing ? (
+                      <div className="w-4 h-4 border-2 border-white border-t-transparent rounded-full animate-spin" />
+                    ) : (
+                      <span>Save</span>
+                    )}
+                  </button>
+                </div>
               </div>
             </StatusSection>
           </motion.div>
@@ -225,7 +395,7 @@ function InfoTile({ label, value, icon }: any) {
   );
 }
 
-function StatusSection({ title, icon, currentStatus, onStatusChange, options, colors, children }: any) {
+function StatusSection({ title, icon, currentStatus, onStatusChange, options, colors, disabled, children }: any) {
   return (
     <section className="bg-white p-6 rounded-3xl border border-gray-100 space-y-4">
       <div className="flex items-center justify-between">
@@ -234,18 +404,25 @@ function StatusSection({ title, icon, currentStatus, onStatusChange, options, co
           <h3 className="font-black text-gray-900">{title}</h3>
         </div>
         <div className="flex space-x-1">
-          {options.map((opt: string) => (
-            <button
-              key={opt}
-              onClick={() => onStatusChange(opt)}
-              className={cn(
-                "px-3 py-1 rounded-full text-[10px] font-black uppercase transition-all",
-                currentStatus === opt ? colors[opt] : "bg-gray-50 text-gray-300 hover:text-gray-500"
-              )}
-            >
-              {opt}
-            </button>
-          ))}
+          {options.map((opt: string) => {
+            const isSelected = currentStatus === opt;
+            return (
+              <button
+                key={opt}
+                type="button"
+                disabled={disabled}
+                onClick={() => onStatusChange(opt)}
+                className={cn(
+                  "px-3 py-1 rounded-full text-[10px] font-black uppercase transition-all focus:outline-none",
+                  isSelected ? colors[opt] : "bg-gray-50 text-gray-300",
+                  !isSelected && !disabled ? "hover:text-gray-500 hover:bg-gray-100 cursor-pointer" : "",
+                  disabled ? "opacity-75 cursor-not-allowed" : "cursor-pointer"
+                )}
+              >
+                {opt}
+              </button>
+            );
+          })}
         </div>
       </div>
       {children}
